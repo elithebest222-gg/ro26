@@ -1,0 +1,40 @@
+{
+	"binaryType": "WebClientApp",
+	"version": "0.748.0.7481526",
+	"clientVersionUpload": "version-1ef59424f70d4932",
+	"cdnBase": "https://setup.rbxcdn.com/webclient/version-1ef59424f70d4932-RobloxWebClient/",
+	"pinnedAt": "2026-11-22T23:19:16.931Z",
+	"core": {
+		"WasmPlayer.js": {
+			"size": 38371,
+			"sha256": "6e4ae8636ceff59449461836103aec0c2eab11deb88bcad5aefa9760d27f8a04"
+		},
+		"WebClient.js": {
+			"size": 165774,
+			"sha256": "b4dc7434dec6998c3fbf91e7eac93c2b4a1f4ab0f7d37c434f19c3dbe9f2d3a3"
+		},
+		"WebClient.wasm": {
+			"size": 102268042,
+			"sha256": "be370a4446dcfce62635f7e6d271526b15e2099507fb7250b2d3360eacd4a61f"
+		},
+		"WebClient.fsindex.txt": {
+			"size": 56239,
+			"sha256": "8c3b185cddafd21d556105829aac1b04eef1d68ca09172bf5c599293fe14ab93"
+		},
+		"audio-processor-fast.js": {
+			"size": 2038,
+			"sha256": "6b75b80b356febfff0f1d223963673d87b3c8564a276de560c473641c6c06cef"
+		}
+	},
+	"content": {
+		"files": 2913,
+		"bytes": 129098078
+	},
+	"flags": {
+		"WebClientApp": "flags/WebClientApp.json",
+		"WindowsWebClientApp": "flags/WebClientApp.json",
+		"MacWebClientApp": "flags/WebClientApp.json",
+		"AndroidWebClientApp": "flags/WebClientApp.json",
+		"iOSWebClientApp": "flags/WebClientApp.json"
+	}
+}

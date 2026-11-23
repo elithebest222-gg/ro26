@@ -1,0 +1,27 @@
+{
+  "name": "webblox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Roblox's official WebClientApp (wasm) hosted as a static GitHub Pages site.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "engine:latest": "node scripts/vendor-engine.mjs latest",
+    "engine:pin": "node scripts/vendor-engine.mjs pin",
+    "engine:fetch": "node scripts/vendor-engine.mjs fetch",
+    "build": "node scripts/build.mjs",
+    "serve": "node scripts/serve.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@mercuryworkshop/epoxy-tls": "2.1.20-1",
+    "@mercuryworkshop/scramjet": "2.1.0",
+    "@mercuryworkshop/scramjet-controller": "0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

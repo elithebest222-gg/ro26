@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Sign in · webblox</title>
+		<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+		<link rel="stylesheet" href="css/app.css" />
+		<script src="scramjet/scramjet.js"></script>
+		<script src="controller/controller.api.js"></script>
+		<script type="module" src="js/browser.js"></script>
+	</head>
+	<body class="browser-page">
+		<header class="browser-bar">
+			<a class="brand" href="./" title="Back to webblox">
+				<svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><use href="favicon.svg#mark" /></svg>
+				<span>webblox</span>
+			</a>
+			<div class="nav-buttons">
+				<button id="nav-back" class="icon-btn" type="button" aria-label="Back" title="Back">
+					<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+				</button>
+				<button id="nav-forward" class="icon-btn" type="button" aria-label="Forward" title="Forward">
+					<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+				</button>
+				<button id="nav-reload" class="icon-btn" type="button" aria-label="Reload" title="Reload">
+					<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M19 12a7 7 0 1 1-2.05-4.95M19 4v4h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+				</button>
+			</div>
+			<form id="address-form" class="address" autocomplete="off">
+				<input id="address" type="text" inputmode="url" spellcheck="false" aria-label="Address" />
+			</form>
+			<div id="session" class="session-chip" hidden></div>
+		</header>
+
+		<div id="banner" class="banner" role="status" hidden>
+			<span id="banner-text"></span>
+			<span class="banner-actions">
+				<a id="banner-action" class="btn primary small" hidden></a>
+				<button id="banner-close" class="btn small" type="button">Dismiss</button>
+			</span>
+		</div>
+
+		<main class="frame-wrap">
+			<iframe id="frame" title="roblox.com" allow="autoplay; clipboard-write; fullscreen"></iframe>
+			<div id="frame-status" class="frame-status">Starting the browser…</div>
+		</main>
+	</body>
+</html>

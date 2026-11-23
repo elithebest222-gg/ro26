@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="description" content="Play Roblox experiences in the browser with Roblox's own WebAssembly client." />
+		<title>webblox</title>
+		<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+		<link rel="stylesheet" href="css/app.css" />
+		<script type="module" src="js/launcher.js"></script>
+	</head>
+	<body>
+		<header class="topbar">
+			<a class="brand" href="./">
+				<svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><use href="favicon.svg#mark" /></svg>
+				<span>webblox</span>
+			</a>
+			<div class="topbar-actions">
+				<div id="account" class="account">
+					<a id="signin" class="btn primary small" href="browser.html">Sign in</a>
+				</div>
+				<button id="open-settings" class="icon-btn" type="button" aria-label="Settings" title="Settings">
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+						<path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zm7.4-3.2-.1-1.3 2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.2-1.3L14.4 3h-4.8l-.4 2.4A7.6 7.6 0 0 0 7 6.7l-2.4-1-2 3.4 2 1.6-.1 1.3.1 1.3-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2.2 1.3l.4 2.4h4.8l.4-2.4a7.6 7.6 0 0 0 2.2-1.3l2.4 1 2-3.4-2-1.6z" />
+					</svg>
+				</button>
+			</div>
+		</header>
+
+		<main class="page">
+			<section class="hero">
+				<h1>Play Roblox in your browser</h1>
+				<p class="lede">Runs Roblox's own WebAssembly client. Search for an experience or paste a game link.</p>
+				<form id="search-form" class="search" role="search" autocomplete="off">
+					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M10.5 18a7.5 7.5 0 1 1 5.3-2.2L21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+					<input id="search" type="search" placeholder="Search experiences, or paste a game link" aria-label="Search experiences or paste a game link" />
+					<button class="btn primary" type="submit">Go</button>
+				</form>
+				<p id="notice" class="notice" hidden></p>
+			</section>
+
+			<section id="recent-section" class="section" hidden>
+				<div class="section-head">
+					<h2>Recently played</h2>
+					<button id="clear-recent" class="link-btn" type="button">Clear</button>
+				</div>
+				<div id="recent" class="grid"></div>
+			</section>
+
+			<section id="results-section" class="section" hidden>
+				<div class="section-head">
+					<h2 id="results-title">Results</h2>
+				</div>
+				<div id="results" class="grid" aria-live="polite"></div>
+				<div class="more"><button id="more" class="btn" type="button" hidden>Load more</button></div>
+			</section>
+		</main>
+
+		<footer class="footer">
+			<span id="engine-line">Engine: loading…</span>
+			<span>Not affiliated with Roblox Corporation.</span>
+		</footer>
+
+		<dialog id="details" class="sheet" aria-labelledby="details-name">
+			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
+			<div class="details-head">
+				<img id="details-icon" class="details-icon" alt="" />
+				<div>
+					<h2 id="details-name">…</h2>
+					<p id="details-creator" class="muted"></p>
+					<p id="details-stats" class="muted small"></p>
+				</div>
+			</div>
+			<div class="details-actions">
+				<button id="details-play" class="btn primary big" type="button">Play</button>
+				<button id="details-servers-btn" class="btn" type="button">Servers</button>
+			</div>
+			<p id="details-description" class="details-description"></p>
+			<div id="details-servers" class="servers" hidden>
+				<h3>Public servers</h3>
+				<ul id="servers-list" class="servers-list"></ul>
+				<button id="servers-more" class="btn small" type="button" hidden>More servers</button>
+			</div>
+		</dialog>
+
+		<dialog id="settings" class="sheet" aria-labelledby="settings-title">
+			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
+			<h2 id="settings-title">Settings</h2>
+			<form id="settings-form" class="settings-form">
+				<label class="field">
+					<span>Wisp server</span>
+					<input id="wisp-url" type="url" required spellcheck="false" placeholder="wss://example.com/wisp/" />
+					<small class="muted">Roblox traffic is tunnelled through this server. TLS is end-to-end (it runs in your browser), so the server only relays encrypted bytes. Sign in and play through the same server: Roblox may end the session if your address changes.</small>
+				</label>
+				<div class="row">
+					<button id="wisp-test" class="btn small" type="button">Test connection</button>
+					<span id="wisp-result" class="muted small"></span>
+				</div>
+				<label class="field">
+					<span>Renderer</span>
+					<select id="renderer">
+						<option value="auto">Automatic (WebGPU when supported)</option>
+						<option value="webgpu">WebGPU</option>
+						<option value="webgl">WebGL 2</option>
+					</select>
+				</label>
+				<div class="row end">
+					<button class="btn primary" type="submit">Save</button>
+				</div>
+			</form>
+			<hr />
+			<div class="settings-section">
+				<h3>Account</h3>
+				<p id="settings-account" class="muted">Not signed in.</p>
+				<div class="row">
+					<a class="btn small" href="browser.html">Open sign-in browser</a>
+					<button id="signout" class="btn small danger" type="button" hidden>Sign out</button>
+				</div>
+			</div>
+			<hr />
+			<div class="settings-section">
+				<h3>Engine</h3>
+				<p id="settings-engine" class="muted small"></p>
+			</div>
+		</dialog>
+	</body>
+</html>
