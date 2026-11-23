@@ -84,8 +84,10 @@ player/ (index.html + boot.js)            player/sw.js (scope player/)
   carry CORP `cross-origin` and CORS headers that list every response header, so the engine can
   read `x-csrf-token`.
 - **Join fixes** (`src/js/lib/robloxnet.js`):
-  - `gamejoin.roblox.com` is called with `rbx-user-agent: Roblox/Darwin`; other `Roblox/Web …`
-    user agents become `Roblox/WinInet`.
+  - Game joins go out first with the engine's own web-client identity (`Roblox/Web …`), so Roblox can
+    fill in `joinScript.gameFqdn` itself. If Roblox refuses that, or the result has no usable
+    address, the join is repeated as the macOS client (`rbx-user-agent: Roblox/Darwin`), and whichever
+    worked is kept for the session. Other `Roblox/Web …` user agents become `Roblox/WinInet`.
   - A missing `joinScript.gameFqdn` is rebuilt as
     `<netstack token>-<MachineAddress>-<NetStackPort>.<UdmuxEndpoints[0] address, last octet +1>.qdmux.roblox.com`.
     Each part is the lowercase hex of its raw bytes, the way the engine's own generator writes it:

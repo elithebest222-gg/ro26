@@ -67,20 +67,51 @@ test("CSRF: 403 with a token is retried once with it", async () => {
 	assert.equal(client.calls[1].headers["x-csrf-token"], "TOKEN");
 });
 
-test("join: join-game -> join-game-instance with gameId until a join script arrives, then gameFqdn added", async () => {
-	const joinScript = { MachineAddress: "10.0.0.1", NetStackPort: 4096, UdmuxEndpoints: [{ Address: "128.116.1.1" }], NetStackTokenValue: "ff", PlaceId: 1818 };
-	const client = fakeClient((url, init, n) => ({ body: JSON.stringify(n === 1 ? { status: 0, joinScript: null } : { status: 2, joinScript }) }));
+const WEB_UA = "Roblox/Web 0.748 (Desktop) Browser/Chrome/1";
+const joinReq = (extra = {}) => req("https://gamejoin.roblox.com/v1/join-game", { method: "POST", headers: [["rbx-user-agent", WEB_UA], ["content-type", "application/json"]], body: JSON.stringify({ placeId: 1818 }), ...extra });
+const rebuildable = { MachineAddress: "10.0.0.1", NetStackPort: 4096, UdmuxEndpoints: [{ Address: "128.116.1.1" }], NetStackTokenValue: "ff", PlaceId: 1818 };
+
+test("join: the browser identity is tried first, a specific server via join-game-instance, address rebuilt", async () => {
+	const client = fakeClient((url, init, n) => ({ body: JSON.stringify(n === 1 ? { status: 0, joinScript: null } : { status: 2, joinScript: rebuildable }) }));
 	const net = new RobloxNet({ client, jar: new CookieJar(), join: { placeId: "1818", gameId: "abc-123" } });
-	const ua = [["rbx-user-agent", "Roblox/Web 0.748 (Desktop) Browser/Chrome/1"], ["content-type", "application/json"]];
-	await net.request(req("https://gamejoin.roblox.com/v1/join-game", { method: "POST", headers: ua, body: JSON.stringify({ placeId: 1818 }) }));
-	const res = await net.request(req("https://gamejoin.roblox.com/v1/join-game", { method: "POST", headers: ua, body: JSON.stringify({ placeId: 1818 }) }));
+	await net.request(joinReq()); // still waiting for a server: no fallback, same identity next time
+	const res = await net.request(joinReq());
+	assert.equal(client.calls.length, 2);
 	assert.equal(client.calls[0].url, "https://gamejoin.roblox.com/v1/join-game-instance");
 	assert.deepEqual(JSON.parse(client.calls[0].body), { placeId: 1818, gameId: "abc-123" });
-	assert.equal(client.calls[0].headers["rbx-user-agent"], "Roblox/Darwin");
+	assert.equal(client.calls[0].headers["rbx-user-agent"], WEB_UA);
 	assert.equal(JSON.parse(dec.decode(res.body)).joinScript.gameFqdn, `${"ff".padStart(32, "0")}-0a000001-1000.80740102.qdmux.roblox.com`);
+	assert.equal(net.joinIdentity, "web");
 	// After a successful join, later joins (teleports) are left alone.
-	await net.request(req("https://gamejoin.roblox.com/v1/join-game", { method: "POST", headers: ua, body: JSON.stringify({ placeId: 1818 }) }));
+	await net.request(joinReq());
 	assert.equal(client.calls[2].url, "https://gamejoin.roblox.com/v1/join-game");
+});
+
+test("join: when Roblox refuses the browser identity, it is retried as the macOS client and that sticks", async () => {
+	const client = fakeClient((url, init) =>
+		init.headers["rbx-user-agent"] === "Roblox/Darwin"
+			? { body: JSON.stringify({ status: 2, joinScript: rebuildable }) }
+			: { body: JSON.stringify({ status: 12, message: "not allowed", joinScript: null }) },
+	);
+	const net = new RobloxNet({ client, jar: new CookieJar() });
+	const seen = [];
+	net.onGameJoin = (info) => seen.push(info);
+	const res = await net.request(joinReq());
+	assert.deepEqual(client.calls.map((c) => c.headers["rbx-user-agent"]), [WEB_UA, "Roblox/Darwin"]);
+	assert.match(JSON.parse(dec.decode(res.body)).joinScript.gameFqdn, /-0a000001-1000\.80740102\.qdmux\.roblox\.com$/);
+	assert.equal(seen[0].identity, "darwin");
+	assert.match(seen[0].attempts[0], /web: HTTP 200, status 12 "not allowed"/);
+	await net.request(joinReq());
+	assert.equal(client.calls.length, 3);
+	assert.equal(client.calls[2].headers["rbx-user-agent"], "Roblox/Darwin");
+});
+
+test("join: an address Roblox sends itself is used as it is", async () => {
+	const client = fakeClient(() => ({ body: JSON.stringify({ status: 2, joinScript: { gameFqdn: "from-roblox.qdmux.roblox.com", UdmuxEndpoints: [] } }) }));
+	const net = new RobloxNet({ client, jar: new CookieJar() });
+	const res = await net.request(joinReq());
+	assert.equal(client.calls.length, 1);
+	assert.equal(JSON.parse(dec.decode(res.body)).joinScript.gameFqdn, "from-roblox.qdmux.roblox.com");
 });
 
 test("pinned flags and engine version are answered locally", async () => {

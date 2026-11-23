@@ -93,6 +93,33 @@ export function buildGameFqdn(joinScript) {
 	return `${token}-${hexWidth(machine, 8)}-${hexWidth(port, 4)}.${hexWidth(edge, 8)}.qdmux.roblox.com`;
 }
 
+// Classifies a game join response: "usable" (a join script with an address the engine can use, or
+// one webblox can rebuild), "pending" (Roblox is still finding a server) or "unusable".
+function judgeJoin(res) {
+	let payload = null;
+	try {
+		payload = res.body ? JSON.parse(dec.decode(res.body)) : null;
+	} catch {
+		payload = null;
+	}
+	const status = payload && typeof payload.status === "number" ? payload.status : null;
+	const message = payload?.message || payload?.errors?.[0]?.message || "";
+	let script = payload?.joinScript;
+	if (typeof script === "string") {
+		try {
+			script = JSON.parse(script);
+		} catch {
+			script = null;
+		}
+	}
+	const hasFqdn = !!(script && typeof script === "object" && script.gameFqdn);
+	if (res.status === 200 && status === 2 && script && typeof script === "object" && (hasFqdn || buildGameFqdn(script))) {
+		return { kind: "usable", status, message, hasFqdn };
+	}
+	if (res.status === 200 && (status === 0 || status === 1)) return { kind: "pending", status, message, hasFqdn };
+	return { kind: "unusable", status, message, hasFqdn };
+}
+
 const json = (status, obj, extra = []) => ({
 	status,
 	statusText: status === 200 ? "OK" : "",
@@ -120,6 +147,7 @@ export class RobloxNet {
 		this.csrf = null;
 		this.flagCache = new Map();
 		this.onGameJoin = null; // diagnostics callback for every game join response
+		this.joinIdentity = null; // "web" or "darwin", once a join has shown which one works
 	}
 
 	// req: { url, method, headers: [[k, v]], body: ArrayBuffer | string | null, credentials }
@@ -143,10 +171,12 @@ export class RobloxNet {
 		if (method === "GET" || method === "HEAD") body = null;
 
 		const roblox = isRobloxHost(url.hostname);
+		const isJoin = url.hostname === GAMEJOIN && method === "POST" && /^\/v\d+\/join-/.test(url.pathname);
+		const engineUa = headers["rbx-user-agent"];
 		if (roblox) {
 			headers.origin = WEBSITE;
 			headers.referer = `${WEBSITE}/`;
-			if ("rbx-user-agent" in headers || url.hostname === GAMEJOIN) {
+			if (!isJoin && ("rbx-user-agent" in headers || url.hostname === GAMEJOIN)) {
 				headers["rbx-user-agent"] = rewriteRbxUserAgent(headers["rbx-user-agent"], url.hostname);
 			}
 			if (req.credentials !== "omit") {
@@ -156,26 +186,49 @@ export class RobloxNet {
 			if (method !== "GET" && method !== "HEAD" && !headers["x-csrf-token"] && this.csrf) headers["x-csrf-token"] = this.csrf;
 		}
 
+		if (!isJoin) return this.sendWithCsrf(url, method, headers, body);
 		let joinRewrite = false;
-		if (url.hostname === GAMEJOIN && method === "POST") {
-			({ body, joinRewrite } = this.rewriteJoin(url, body));
-		}
+		({ body, joinRewrite } = this.rewriteJoin(url, body));
+		return this.joinGame(url, headers, body, joinRewrite, engineUa);
+	}
 
+	// Roblox answers a POST without a valid token with 403 + a fresh x-csrf-token.
+	async sendWithCsrf(url, method, headers, body) {
 		let res = await this.send(url, method, headers, body);
-
-		// Roblox answers a POST without a valid token with 403 + a fresh x-csrf-token.
-		const token = roblox ? getHeader(res.headers, "x-csrf-token") : null;
+		const token = isRobloxHost(url.hostname) ? getHeader(res.headers, "x-csrf-token") : null;
 		if (token && res.status === 403 && token !== headers["x-csrf-token"]) {
 			this.csrf = token;
 			headers["x-csrf-token"] = token;
 			res = await this.send(url, method, headers, body);
 		} else if (token) this.csrf = token;
-
-		if (url.hostname === GAMEJOIN && /^\/v\d+\/join-/.test(url.pathname)) {
-			if (res.body) res = this.fixJoinResponse(res, joinRewrite, url.pathname);
-			else this.onGameJoin?.({ path: url.pathname, httpStatus: res.status, note: "empty response" });
-		}
 		return res;
+	}
+
+	// Game join. The engine identifies itself as the web client ("Roblox/Web …"), and only then does
+	// Roblox fill in joinScript.gameFqdn, the WebTransport address the engine needs. That is tried
+	// first; if Roblox refuses it or the result has no usable address, the join is repeated as the
+	// macOS client ("Roblox/Darwin"), and the address is rebuilt from the join script when possible.
+	// Whichever identity produced a usable join is kept for the rest of the session.
+	async joinGame(url, headers, body, joinRewrite, engineUa) {
+		const modes = this.joinIdentity ? [this.joinIdentity] : engineUa && /^Roblox\/Web\b/.test(engineUa) ? ["web", "darwin"] : ["darwin"];
+		const attempts = [];
+		let res = null;
+		for (const [i, mode] of modes.entries()) {
+			res = await this.sendWithCsrf(url, "POST", { ...headers, "rbx-user-agent": mode === "web" ? engineUa : "Roblox/Darwin" }, body);
+			const verdict = judgeJoin(res);
+			attempts.push(`${mode}: HTTP ${res.status}${verdict.status !== null ? `, status ${verdict.status}` : ""}${verdict.message ? ` "${verdict.message}"` : ""}${verdict.status === 2 ? `, gameFqdn ${verdict.hasFqdn ? "sent" : "not sent"}` : ""}`);
+			if (verdict.kind === "usable") {
+				this.joinIdentity = mode;
+				break;
+			}
+			if (verdict.kind === "pending") break; // the engine polls again; try the same way next time
+			if (i < modes.length - 1) this.joinIdentity = modes[i + 1]; // this identity doesn't work here
+		}
+		if (!res.body) {
+			this.onGameJoin?.({ path: url.pathname, httpStatus: res.status, note: "empty response", attempts });
+			return res;
+		}
+		return this.fixJoinResponse(res, joinRewrite, url.pathname, { attempts, identity: this.joinIdentity || modes[0] });
 	}
 
 	async send(url, method, headers, body) {
@@ -204,12 +257,12 @@ export class RobloxNet {
 		}
 	}
 
-	fixJoinResponse(res, joinRewrite, path) {
+	fixJoinResponse(res, joinRewrite, path, extra = {}) {
 		let payload;
 		try {
 			payload = JSON.parse(dec.decode(res.body));
 		} catch {
-			this.onGameJoin?.({ path, httpStatus: res.status, note: "response was not JSON" });
+			this.onGameJoin?.({ path, httpStatus: res.status, note: "response was not JSON", ...extra });
 			return res;
 		}
 		if (!payload || typeof payload !== "object") return res;
@@ -229,10 +282,16 @@ export class RobloxNet {
 			status: payload.status ?? null,
 			message: payload.message || payload.errors?.[0]?.message || "",
 			hasJoinScript: !!(script && typeof script === "object"),
+			...extra,
 		};
 		if (script && typeof script === "object") {
 			if (joinRewrite && this.join) this.join.done = true;
 			info.fqdnSource = script.gameFqdn ? "roblox" : "missing";
+			const describe = (v) => (v === undefined ? "absent" : v === null ? "null" : Array.isArray(v) ? `array of ${v.length}` : typeof v === "string" ? (v ? "text" : "empty text") : typeof v);
+			info.fqdnRaw = describe(script.gameFqdn);
+			info.udmuxRaw = describe(script.UdmuxEndpoints);
+			info.serverConnections = Array.isArray(script.ServerConnections) ? script.ServerConnections.length : 0;
+			if (script.NetStackConfig && typeof script.NetStackConfig === "object") info.netStackKeys = Object.keys(script.NetStackConfig).sort();
 			if (!script.gameFqdn) {
 				const fqdn = buildGameFqdn(script);
 				if (fqdn) {

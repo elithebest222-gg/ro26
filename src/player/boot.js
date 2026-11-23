@@ -35,9 +35,12 @@ function formatEvent(e) {
 			if (has(e.status)) line += `, status ${e.status}`;
 			if (has(e.message)) line += ` "${e.message}"`;
 			if (e.note) line += ` (${e.note})`;
+			if (e.identity) line += `, joined as ${e.identity}`;
+			if (e.attempts?.length) line += `\n    attempts: ${e.attempts.join("; ")}`;
 			if (e.hasJoinScript) {
-				line += `, gameFqdn ${e.fqdnSource}${e.gameFqdn ? ` ${e.gameFqdn}` : ""}, udmux endpoints ${e.udmuxEndpoints}`;
+				line += `\n    gameFqdn ${e.fqdnSource} (field: ${e.fqdnRaw})${e.gameFqdn ? ` ${e.gameFqdn}` : ""}, UdmuxEndpoints: ${e.udmuxRaw}, ServerConnections: ${e.serverConnections}`;
 				if (e.certHashKeys?.length) line += `, ${e.certHashKeys.join("/")}`;
+				if (e.netStackKeys?.length) line += `\n    NetStackConfig keys: ${e.netStackKeys.join(", ")}`;
 				line += `\n    script keys: ${e.scriptKeys.join(", ")}`;
 			}
 			return line;
