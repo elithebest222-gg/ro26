@@ -106,7 +106,7 @@ export class RobloxNet {
 		this.join = join && join.gameId ? { placeId: String(join.placeId), gameId: String(join.gameId), done: false } : null;
 		this.csrf = null;
 		this.flagCache = new Map();
-		this.onJoin = null;
+		this.onGameJoin = null; // diagnostics callback for every game join response
 	}
 
 	// req: { url, method, headers: [[k, v]], body: ArrayBuffer | string | null, credentials }
@@ -158,8 +158,9 @@ export class RobloxNet {
 			res = await this.send(url, method, headers, body);
 		} else if (token) this.csrf = token;
 
-		if (url.hostname === GAMEJOIN && res.body && /^\/v\d+\/join-/.test(url.pathname)) {
-			res = this.fixJoinResponse(res, joinRewrite);
+		if (url.hostname === GAMEJOIN && /^\/v\d+\/join-/.test(url.pathname)) {
+			if (res.body) res = this.fixJoinResponse(res, joinRewrite, url.pathname);
+			else this.onGameJoin?.({ path: url.pathname, httpStatus: res.status, note: "empty response" });
 		}
 		return res;
 	}
@@ -190,11 +191,12 @@ export class RobloxNet {
 		}
 	}
 
-	fixJoinResponse(res, joinRewrite) {
+	fixJoinResponse(res, joinRewrite, path) {
 		let payload;
 		try {
 			payload = JSON.parse(dec.decode(res.body));
 		} catch {
+			this.onGameJoin?.({ path, httpStatus: res.status, note: "response was not JSON" });
 			return res;
 		}
 		if (!payload || typeof payload !== "object") return res;
@@ -208,18 +210,32 @@ export class RobloxNet {
 				script = null;
 			}
 		}
+		const info = {
+			path,
+			httpStatus: res.status,
+			status: payload.status ?? null,
+			message: payload.message || payload.errors?.[0]?.message || "",
+			hasJoinScript: !!(script && typeof script === "object"),
+		};
 		if (script && typeof script === "object") {
 			if (joinRewrite && this.join) this.join.done = true;
+			info.fqdnSource = script.gameFqdn ? "roblox" : "missing";
 			if (!script.gameFqdn) {
 				const fqdn = buildGameFqdn(script);
 				if (fqdn) {
 					script.gameFqdn = fqdn;
 					payload.joinScript = scriptIsString ? JSON.stringify(script) : script;
 					changed = true;
+					info.fqdnSource = "rebuilt";
 				}
 			}
-			this.onJoin?.({ placeId: script.PlaceId, gameId: script.GameId ?? payload.jobId, gameFqdn: script.gameFqdn || null });
+			// Enough to see what Roblox sent, without the tokens themselves.
+			info.gameFqdn = script.gameFqdn ? String(script.gameFqdn).replace(/^([0-9a-z]{4})[0-9a-z]*/i, "$1…") : null;
+			info.scriptKeys = Object.keys(script).sort();
+			info.udmuxEndpoints = Array.isArray(script.UdmuxEndpoints) ? script.UdmuxEndpoints.length : 0;
+			info.certHashKeys = Object.keys(script).filter((k) => /cert|hash/i.test(k));
 		}
+		this.onGameJoin?.(info);
 		if (!changed) return res;
 		const body = enc.encode(JSON.stringify(payload)).buffer;
 		return { ...res, headers: res.headers.filter(([k]) => k !== "content-length"), body };

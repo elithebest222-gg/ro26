@@ -227,6 +227,37 @@ body {
 	font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.diag-hint {
+	margin: 0 0 16px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	background: rgba(79, 140, 255, 0.12);
+	color: var(--text);
+	font-size: 14px;
+	text-align: left;
+}
+.diag {
+	margin-top: 16px;
+	text-align: left;
+}
+.diag summary {
+	color: var(--muted);
+	font-size: 13px;
+	cursor: pointer;
+}
+.diag pre {
+	max-height: 240px;
+	overflow: auto;
+	margin: 10px 0;
+	padding: 10px;
+	border-radius: 8px;
+	background: #0b0d12;
+	color: #c9d1dd;
+	font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 .boot-prompt {
 	display: flex;
 	flex-direction: column;

@@ -9,6 +9,11 @@
 //    *.rbxcdn.com is handed to the page's network worker, which sends it over Wisp.
 
 import { isProxiedHost, isRbxCdnHost } from "../js/lib/hosts.js";
+import { installWebTransportDiag } from "../js/lib/wt-diag.js";
+
+// Put in front of WebClient.js when the engine starts one of its worker threads, so WebTransport
+// attempts made there show up in the player's diagnostics too.
+const WORKER_PRELUDE = `;try{(${installWebTransportDiag.toString()})(self)}catch(e){}\n`;
 
 const SCOPE = new URL(self.registration.scope);
 const ORIGIN = self.location.origin;
@@ -50,7 +55,8 @@ self.addEventListener("fetch", (event) => {
 		return;
 	}
 	if (url.origin === ORIGIN) {
-		if (req.method === "GET" || req.method === "HEAD") event.respondWith(sameOrigin(event, url));
+		if (url.pathname.endsWith("/__webblox/probe")) event.respondWith(probe(url));
+		else if (req.method === "GET" || req.method === "HEAD") event.respondWith(sameOrigin(event, url));
 		return;
 	}
 	if (url.protocol === "https:" && isProxiedHost(url.hostname)) event.respondWith(proxied(event, url));
@@ -92,7 +98,13 @@ async function sameOrigin(event, url) {
 		if (cfg.wasmSize) extra["Content-Length"] = String(cfg.wasmSize);
 	}
 	try {
-		const res = await engineFile(event, cfg, rel, href);
+		let res = await engineFile(event, cfg, rel, href);
+		if (rel === "WebClient.js" && req.destination === "worker" && res.ok) {
+			res = new Response(WORKER_PRELUDE + (await res.text()), {
+				status: 200,
+				headers: { "Content-Type": "text/javascript; charset=utf-8" },
+			});
+		}
 		return isolate(res, { method: req.method, extra });
 	} catch (err) {
 		console.warn("[webblox] engine file failed:", rel, err);
@@ -156,6 +168,30 @@ function joinParts(urls) {
 		cancel(reason) {
 			reader?.cancel(reason);
 		},
+	});
+}
+
+// Diagnostics: can this browser reach a Roblox host directly, outside the Wisp tunnel? The game
+// connection (WebTransport) cannot use the tunnel, so a network that blocks Roblox breaks it.
+async function probe(url) {
+	let result;
+	try {
+		const target = new URL(url.searchParams.get("url"));
+		if (target.protocol !== "https:" || !isProxiedHost(target.hostname)) throw new Error("not a Roblox URL");
+		const ctrl = new AbortController();
+		const timer = setTimeout(() => ctrl.abort(), 6000);
+		const t0 = Date.now();
+		try {
+			await fetch(target.href, { mode: "no-cors", credentials: "omit", cache: "no-store", signal: ctrl.signal });
+			result = { ok: true, ms: Date.now() - t0 };
+		} finally {
+			clearTimeout(timer);
+		}
+	} catch (err) {
+		result = { ok: false, error: err?.name === "AbortError" ? "timed out after 6 s" : String(err?.message || err) };
+	}
+	return new Response(JSON.stringify(result), {
+		headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Cross-Origin-Resource-Policy": "same-origin" },
 	});
 }
 

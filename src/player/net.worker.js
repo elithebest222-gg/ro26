@@ -22,7 +22,8 @@ async function init(options) {
 	}
 	const client = await createEpoxyClient(options.wispUrl, { rootCerts: options.rootCerts || [] });
 	const net = new RobloxNet({ client, jar, engine: options.engine, flagOverrides: options.flagOverrides, join: options.join });
-	net.onJoin = (info) => self.postMessage({ type: "joined", info });
+	const diag = new BroadcastChannel("webblox:diag");
+	net.onGameJoin = (info) => diag.postMessage({ kind: "join", where: "network worker", at: Date.now(), ...info });
 	return net;
 }
 

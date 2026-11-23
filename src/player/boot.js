@@ -4,10 +4,139 @@
 
 import { authenticatedUser, followUser } from "../js/lib/roblox-api.js";
 import { devRootCerts, loadSettings } from "../js/lib/settings.js";
+import { installWebTransportDiag } from "../js/lib/wt-diag.js";
 
 const APP_BASE = new URL("../", location.href);
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
+
+// ---- diagnostics ---------------------------------------------------------------------------
+// Join results (from the network worker), WebTransport attempts (page and engine workers) and
+// engine failures, shown under the error message with a copy button when a join fails.
+
+const diag = { events: [], context: {} };
+new BroadcastChannel("webblox:diag").onmessage = (e) => noteDiag(e.data);
+function noteDiag(event) {
+	diag.events.push({ at: Date.now(), where: "page", ...event });
+	renderDiag();
+}
+
+function browserName() {
+	const brands = navigator.userAgentData?.brands?.filter((b) => !/not.?a.?brand/i.test(b.brand));
+	return brands?.length ? brands.map((b) => `${b.brand} ${b.version}`).join(", ") : navigator.userAgent;
+}
+
+function formatEvent(e) {
+	const t = new Date(e.at).toISOString().slice(11, 23);
+	const has = (v) => v !== null && v !== undefined && v !== "";
+	switch (e.kind) {
+		case "join": {
+			let line = `${t} join ${e.path}: HTTP ${e.httpStatus}`;
+			if (has(e.status)) line += `, status ${e.status}`;
+			if (has(e.message)) line += ` "${e.message}"`;
+			if (e.note) line += ` (${e.note})`;
+			if (e.hasJoinScript) {
+				line += `, gameFqdn ${e.fqdnSource}${e.gameFqdn ? ` ${e.gameFqdn}` : ""}, udmux endpoints ${e.udmuxEndpoints}`;
+				if (e.certHashKeys?.length) line += `, ${e.certHashKeys.join("/")}`;
+				line += `\n    script keys: ${e.scriptKeys.join(", ")}`;
+			}
+			return line;
+		}
+		case "wt-open":
+			return `${t} [${e.where}] WebTransport to ${e.url}, ${e.certHashes} cert hash(es)`;
+		case "wt-ready":
+			return `${t} [${e.where}] WebTransport connected after ${e.ms} ms`;
+		case "wt-fail":
+			return `${t} [${e.where}] WebTransport failed after ${e.ms} ms: ${e.error}`;
+		case "wt-closed":
+			return `${t} [${e.where}] WebTransport closed after ${e.ms} ms${has(e.closeCode) ? `, code ${e.closeCode}` : ""}${e.reason ? `, "${e.reason}"` : ""}${e.error ? `: ${e.error}` : ""}`;
+		case "probe":
+			return `${t} direct HTTPS from this browser to ${e.host} (outside Wisp): ${e.ok ? `reachable (${e.ms} ms)` : `blocked (${e.error})`}`;
+		case "engine-failure":
+			return `${t} engine ${e.source}: "${e.message}"${has(e.errorCode) ? `, code ${e.errorCode}` : ""}${has(e.statusCode) ? `, status ${e.statusCode}` : ""}`;
+		default:
+			return `${t} ${e.kind}`;
+	}
+}
+
+function diagText() {
+	const c = diag.context;
+	return [
+		"webblox diagnostics",
+		`engine: ${c.engine || "?"}   place: ${c.placeId || "?"}   server: ${c.gameId || "any"}`,
+		`browser: ${browserName()}`,
+		`isolated: ${crossOriginIsolated ? "yes" : "no"}   WebTransport: ${typeof WebTransport === "undefined" ? "no" : "yes"}   renderer: ${c.renderer || "?"}`,
+		`wisp: ${c.wisp || "?"}   signed in: ${c.signedIn || "?"}`,
+		"",
+		...diag.events.map(formatEvent),
+	].join("\n");
+}
+
+function diagHint() {
+	const ev = diag.events;
+	const join = [...ev].reverse().find((e) => e.kind === "join" && e.hasJoinScript);
+	if (join && ev.some((e) => e.kind === "probe" && !e.ok)) {
+		return "Your network blocks Roblox outside the Wisp tunnel. Sign-in and joining go through Wisp, but the game connection itself goes straight from your browser to Roblox's servers and can't use the tunnel, so it fails here. It should work on a network that doesn't block Roblox (for example a phone hotspot).";
+	}
+	if (ev.some((e) => e.kind === "wt-fail")) {
+		return "Your browser couldn't connect to Roblox's game server. Game traffic goes straight from your browser to Roblox over WebTransport (UDP), not through the Wisp server, and networks that block UDP or QUIC (common at schools and workplaces) stop it. Try another network, such as a phone hotspot, to check.";
+	}
+	if (join?.fqdnSource === "missing") return "Roblox didn't send a game server address and webblox couldn't rebuild one.";
+	if (join && !ev.some((e) => e.kind === "wt-open")) return "Roblox assigned a server, but the engine never tried to connect to it.";
+	return "";
+}
+
+let probed = false;
+function probeDirect() {
+	if (probed) return;
+	probed = true;
+	const target = "https://www.roblox.com/favicon.ico";
+	fetch(`__webblox/probe?url=${encodeURIComponent(target)}`)
+		.then((r) => r.json())
+		.then((r) => noteDiag({ kind: "probe", host: new URL(target).host, ...r }))
+		.catch(() => {});
+}
+
+function renderDiag() {
+	if (!$("loading-overlay")?.classList.contains("loading-failed")) return;
+	probeDirect();
+	if (!diag.events.length) return;
+	$("diag").hidden = false;
+	$("diag-text").textContent = diagText();
+	const hint = diagHint();
+	$("diag-hint").hidden = !hint;
+	$("diag-hint").textContent = hint;
+}
+
+function installDiagnostics() {
+	installWebTransportDiag(window);
+	// WasmPlayer.js assigns this hook; wrap whatever it assigns to also record failures.
+	let inner = null;
+	Object.defineProperty(window, "__onEngineLoadingStatus", {
+		configurable: true,
+		get() {
+			return (s) => {
+				if (s?.kind === "failure") noteDiag({ kind: "engine-failure", source: s.source, message: s.message, errorCode: s.errorCode, statusCode: s.statusCode });
+				inner?.(s);
+			};
+		},
+		set(fn) {
+			inner = fn;
+		},
+	});
+	new MutationObserver(renderDiag).observe($("loading-overlay"), { attributes: true, attributeFilter: ["class"] });
+	$("diag-copy").addEventListener("click", async () => {
+		const button = $("diag-copy");
+		try {
+			await navigator.clipboard.writeText(diagText());
+			button.textContent = "Copied";
+		} catch {
+			getSelection()?.selectAllChildren($("diag-text"));
+			button.textContent = "Press Ctrl+C to copy";
+		}
+		setTimeout(() => (button.textContent = "Copy details"), 2500);
+	});
+}
 
 let engineStarted = false;
 
@@ -158,7 +287,6 @@ function startNetWorker(options) {
 		worker.addEventListener("message", (e) => {
 			if (e.data?.type === "ready") resolve();
 			else if (e.data?.type === "error") reject(new Error(e.data.message));
-			else if (e.data?.type === "joined") console.info("[webblox] joined", e.data.info);
 		});
 		worker.addEventListener("error", (e) => reject(new Error(e.message || "The network worker failed to start.")));
 	});
@@ -212,6 +340,7 @@ function wispProblem(err, wispUrl) {
 
 async function main() {
 	installExitHooks();
+	installDiagnostics();
 	$("canvas").addEventListener("contextmenu", (e) => e.preventDefault());
 
 	let placeId = params.get("placeId");
@@ -235,6 +364,13 @@ async function main() {
 
 	const settings = loadSettings();
 	const flagOverrides = await rendererOverrides(settings.renderer);
+	Object.assign(diag.context, {
+		engine: `${engine.clientVersionUpload} (${engine.version || "?"}, ${engine.mode})`,
+		placeId,
+		gameId,
+		wisp: settings.wispUrl,
+		renderer: flagOverrides.FFlagWasmPreferWebGPU === "False" ? `webgl (setting ${settings.renderer})` : `webgpu (setting ${settings.renderer})`,
+	});
 
 	setStatus("Connecting…");
 	const net = startNetWorker({
@@ -255,6 +391,7 @@ async function main() {
 		await prompt(wispProblem(err, settings.wispUrl).message, { label: "Open settings", href: APP_BASE.href }, { label: "Try anyway" });
 		user = undefined;
 	}
+	diag.context.signedIn = user ? "yes" : user === null ? "no" : "unknown (session check failed)";
 	if (user === null) {
 		const back = new URL(APP_BASE);
 		back.searchParams.set("signin", "1");
@@ -272,6 +409,7 @@ async function main() {
 			throw Object.assign(err, { title: "Can't join" });
 		});
 		placeId = target.placeId;
+		Object.assign(diag.context, { placeId, gameId: target.gameId, followed: followUserId });
 		gameId = target.gameId;
 		net.setJoin({ placeId, gameId });
 	}
