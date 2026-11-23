@@ -54,7 +54,7 @@ export async function signInWithCookie(net, input) {
 	// Try it on a scratch jar first, so a bad paste never replaces a working session.
 	const probe = new CookieJar();
 	probe.set(sessionCookie(value));
-	const user = await authenticatedUser(new RobloxNet({ client: net.client, jar: probe }));
+	const user = await authenticatedUser(new RobloxNet({ client: net.client, jar: probe, timeout: net.timeout }));
 	if (!user) {
 		throw fail(
 			value.startsWith("_|WARNING")

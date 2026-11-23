@@ -25,7 +25,9 @@ function describe(err, url) {
 	if (/tls handshake eof|connection (refused|reset)|stream closed|ConnectionRefused|UnexpectedEof/i.test(msg)) {
 		return `the Wisp server could not connect to ${host}`;
 	}
+	if (/reconnecting to the Wisp server timed out/i.test(msg)) return "it isn't answering";
 	if (/websocket|wisp/i.test(msg)) return `the Wisp server is unreachable (${msg.slice(0, 120)})`;
+	if (/timed out/i.test(msg)) return `no answer from ${host} within ${/after ([\d.]+)s/.exec(msg)?.[1] ?? "?"}s`;
 	if (/certificate|webpki|UnknownIssuer/i.test(msg)) return `${host} presented a certificate that did not verify`;
 	return msg.length > 160 ? `${msg.slice(0, 160)}…` : msg;
 }
@@ -40,7 +42,7 @@ function headerPairs(raw) {
 	return out;
 }
 
-function withTimeout(promise, ms, what) {
+export function withTimeout(promise, ms, what) {
 	let timer;
 	return Promise.race([
 		promise,
@@ -50,9 +52,15 @@ function withTimeout(promise, ms, what) {
 	]).finally(() => clearTimeout(timer));
 }
 
+// Opens a fresh WebSocket to the Wisp server for the client. Bounded: a server that never answers
+// must not leave the caller waiting forever.
+export function reconnectWisp(client, ms = 10000) {
+	return withTimeout(client.replace_stream_provider(), ms, "reconnecting to the Wisp server");
+}
+
 // One HTTPS request through epoxy. Redirects are returned, not followed, so callers decide.
 // Resolves { status, statusText, headers: [[name, value]], body: ArrayBuffer | null }.
-export async function epoxyRequest(client, url, { method = "GET", headers = {}, body = null, timeout = 60000 } = {}) {
+export async function epoxyRequest(client, url, { method = "GET", headers = {}, body = null, timeout = 60000, reconnectTimeout = 10000 } = {}) {
 	const send = async () => {
 		const res = await withTimeout(
 			client.fetch(url, { method, headers, body: body ?? undefined, redirect: "manual" }),
@@ -71,7 +79,7 @@ export async function epoxyRequest(client, url, { method = "GET", headers = {}, 
 		// are safe to repeat.
 		if (method === "GET" || method === "HEAD") {
 			try {
-				await client.replace_stream_provider();
+				await reconnectWisp(client, reconnectTimeout);
 				return await send();
 			} catch (again) {
 				err = again;

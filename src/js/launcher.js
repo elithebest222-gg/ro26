@@ -39,7 +39,9 @@ function getNet() {
 		netPromise = (async () => {
 			const jar = await PersistentJar.open();
 			await importScramjetSession(jar).catch(() => {});
-			return new RobloxNet({ client: await createEpoxyClient(settings.wispUrl), jar });
+			// Short waits: everything here is an API call someone is watching. A Wisp connection
+			// idle for a while is refreshed first, in case the server went away in the meantime.
+			return new RobloxNet({ client: await createEpoxyClient(settings.wispUrl), jar, timeout: 20000, idleRefreshMs: 45000 });
 		})();
 		netPromise.catch(() => (netPromise = null));
 	}
@@ -55,6 +57,13 @@ function notice(text, kind = "info") {
 
 function connectionHint(err) {
 	return `Couldn't reach Roblox through the Wisp server (${err.message}). Check the server in Settings.`;
+}
+
+// Says so when Roblox is slow to answer, so a stuck Wisp server doesn't look like a frozen page.
+// Returns a function that stops it.
+function stillWaiting(set, after = 6000) {
+	const timer = setTimeout(() => set("Still waiting for Roblox. If this doesn't finish soon, the Wisp server in Settings may be down or slow."), after);
+	return () => clearTimeout(timer);
 }
 
 // ---- images -----------------------------------------------------------------------------
@@ -518,25 +527,36 @@ $("password-form").addEventListener("submit", async (e) => {
 	password.status("Signing in…");
 	const stop = new AbortController();
 	password.stop = stop;
+	let done = stillWaiting((text) => password.status(text));
+	const quiet = () => {
+		done();
+		done = () => {};
+	};
 	try {
 		const user = await signInWithPassword(
 			await getNet(),
 			{ identifier: $("pw-user").value, password: $("pw-pass").value },
 			{
-				code: (req) => password.askCode(req),
+				code: (req) => {
+					quiet();
+					return password.askCode(req);
+				},
 				// Long steps (a proof-of-work puzzle) can be stopped with "Start over".
 				progress: (text) => {
+					quiet();
 					password.status(text);
 					$("pw-cancel").hidden = false;
 				},
 				signal: stop.signal,
 			},
 		);
+		quiet();
 		$("pw-pass").value = "";
 		password.reset();
 		password.status("");
 		signedIn(user);
 	} catch (err) {
+		quiet();
 		password.reset();
 		if (err.cancelled) password.status("");
 		else password.status(err.userFacing || err.status ? err.message : connectionHint(err), "error");
@@ -650,6 +670,7 @@ $("cookie-form").addEventListener("submit", async (e) => {
 	status.dataset.kind = "info";
 	status.textContent = "Checking with Roblox…";
 	button.disabled = true;
+	const done = stillWaiting((text) => (status.textContent = text));
 	try {
 		const user = await signInWithCookie(await getNet(), $("cookie-input").value);
 		$("cookie-input").value = "";
@@ -659,6 +680,7 @@ $("cookie-form").addEventListener("submit", async (e) => {
 		status.dataset.kind = "error";
 		status.textContent = err.userFacing || err.status ? err.message : connectionHint(err);
 	} finally {
+		done();
 		button.disabled = false;
 	}
 });
@@ -696,7 +718,7 @@ $("wisp-test").onclick = async () => {
 	out.textContent = "Testing…";
 	const t0 = performance.now();
 	try {
-		const net = new RobloxNet({ client: await createEpoxyClient(url), jar: new CookieJar() });
+		const net = new RobloxNet({ client: await createEpoxyClient(url), jar: new CookieJar(), timeout: 15000 });
 		await net.api("https://apis.roblox.com/universes/v1/places/1818/universe");
 		out.textContent = `Reached Roblox in ${Math.round(performance.now() - t0)} ms.`;
 	} catch (err) {

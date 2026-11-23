@@ -86,7 +86,7 @@ async function refreshSession() {
 	try {
 		const jar = await PersistentJar.open();
 		await importScramjetSession(jar);
-		const user = await authenticatedUser(new RobloxNet({ client: await getClient(), jar }));
+		const user = await authenticatedUser(new RobloxNet({ client: await getClient(), jar, timeout: 20000 }));
 		if (user) chip.textContent = `Signed in as ${user.displayName}`;
 	} catch (err) {
 		console.warn("[webblox] could not confirm the session:", err);

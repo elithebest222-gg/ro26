@@ -3,7 +3,7 @@
 // epoxy, with this module playing the part of the browser: cookies, CSRF tokens, and the
 // request/response fix-ups the web client needs when it is not running on roblox.com.
 
-import { NULL_BODY_STATUS, epoxyRequest } from "./epoxy.js";
+import { NULL_BODY_STATUS, epoxyRequest, reconnectWisp } from "./epoxy.js";
 import { isProxiedHost, isRobloxHost } from "./hosts.js";
 
 export { isProxiedHost, isRbxCdnHost, isRobloxHost } from "./hosts.js";
@@ -138,7 +138,14 @@ export class RobloxNet {
 	 * @param {object} [o.flagOverrides] fast flags to force on top of the pinned set
 	 * @param {object} [o.join] { placeId, gameId } to send the first join to a specific server
 	 */
-	constructor({ client, jar, engine = null, flagOverrides = {}, join = null }) {
+	// timeout: how long one request may take (the player's asset downloads need the default).
+	// idleRefreshMs: after this long without traffic, reconnect to the Wisp server before the next
+	// request, so a connection that died quietly (say, the server restarted) is not waited on.
+	constructor({ client, jar, engine = null, flagOverrides = {}, join = null, timeout = 60000, idleRefreshMs = 0 }) {
+		this.timeout = timeout;
+		this.idleRefreshMs = idleRefreshMs;
+		this.inFlight = 0;
+		this.lastAnswer = 0;
 		this.client = client;
 		this.jar = jar;
 		this.engine = engine;
@@ -232,7 +239,18 @@ export class RobloxNet {
 	}
 
 	async send(url, method, headers, body) {
-		const res = await epoxyRequest(this.client, url.href, { method, headers, body });
+		if (this.idleRefreshMs && !this.inFlight && this.lastAnswer && Date.now() - this.lastAnswer > this.idleRefreshMs) {
+			this.lastAnswer = Date.now();
+			await reconnectWisp(this.client).catch(() => {}); // the request itself reports any trouble
+		}
+		this.inFlight++;
+		let res;
+		try {
+			res = await epoxyRequest(this.client, url.href, { method, headers, body, timeout: this.timeout });
+		} finally {
+			this.inFlight--;
+		}
+		this.lastAnswer = Date.now();
 		if (isRobloxHost(url.hostname)) {
 			const setCookies = res.headers.filter(([k]) => k === "set-cookie").map(([, v]) => v);
 			if (setCookies.length && this.jar.setCookies(setCookies, url)) this.jar.save?.();
