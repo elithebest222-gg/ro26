@@ -133,7 +133,7 @@ const CODE_PATHS = { Authenticator: "authenticator", Email: "email", SMS: "sms",
 const OTHER_METHODS = { SecurityKey: "a security key", Passkey: "a passkey", CrossDevice: "approval in the Roblox app", Password: "a password" };
 
 export const CAPTCHA_MESSAGE =
-	"Roblox wants a CAPTCHA for this sign-in, and its CAPTCHA only works on roblox.com itself. Quick sign-in needs none: approve it from a device where you're signed in. CAPTCHAs are less likely through a Wisp server on a home connection.";
+	"Roblox wants a CAPTCHA for this sign-in, and its CAPTCHA only works on roblox.com itself. Sign in with a cookie instead, which avoids it. CAPTCHAs are also less likely through a Wisp server on a home connection.";
 
 const toBase64 = (text) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
 const fromBase64 = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));

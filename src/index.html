@@ -105,9 +105,9 @@
 			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
 			<h2 id="signin-title">Sign in to Roblox</h2>
 			<div class="tabs" role="tablist" aria-label="Sign-in method">
-				<button id="tab-password" class="tab" role="tab" type="button" aria-selected="true" aria-controls="panel-password">Password</button>
+				<button id="tab-cookie" class="tab" role="tab" type="button" aria-selected="true" aria-controls="panel-cookie">Cookie</button>
+				<button id="tab-password" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-password" tabindex="-1">Password</button>
 				<button id="tab-quick" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-quick" tabindex="-1">Quick sign-in</button>
-				<button id="tab-cookie" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-cookie" tabindex="-1">Cookie</button>
 				<button id="tab-browser" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-browser" tabindex="-1">roblox.com</button>
 			</div>
 
@@ -138,11 +138,11 @@
 						<button id="pw-submit" class="btn primary" type="submit">Sign in</button>
 					</div>
 				</form>
-				<p class="small muted">webblox sends your password from this browser to Roblox's login service, encrypted end to end (TLS runs here, so the Wisp server only relays scrambled bytes), and never stores it. 2-step verification codes are asked for here. If Roblox wants a CAPTCHA, which only works on roblox.com, use quick sign-in instead.</p>
+				<p class="small muted">webblox sends your password from this browser to Roblox's login service, encrypted end to end (TLS runs here, so the Wisp server only relays scrambled bytes), and never stores it. 2-step verification codes are asked for here. If Roblox wants a CAPTCHA, which only works on roblox.com, use the Cookie option instead.</p>
 			</section>
 
 			<section id="panel-quick" class="tab-panel" role="tabpanel" aria-labelledby="tab-quick" hidden>
-				<p id="quick-note" class="note" hidden>Roblox wanted a CAPTCHA for the password sign-in, and its CAPTCHA only works on roblox.com. Approve this code instead: no CAPTCHA needed.</p>
+				<p class="note">Roblox usually refuses a quick sign-in when the code is approved from a different place than where webblox is connecting. Because webblox connects through the Wisp server, this works only when that server is near you (your own, on your network). Otherwise Roblox rejects it; use the Cookie option, which has no such limit.</p>
 				<p class="muted">Approve this sign-in from a phone or computer where you're already signed in to Roblox. No password, CAPTCHA or verification here.</p>
 				<div class="quick-code">
 					<img id="quick-qr" class="quick-qr" alt="QR code for this sign-in" hidden />
@@ -159,7 +159,9 @@
 				<button id="quick-new" class="btn small" type="button" hidden>Get a new code</button>
 			</section>
 
-			<section id="panel-cookie" class="tab-panel" role="tabpanel" aria-labelledby="tab-cookie" hidden>
+			<section id="panel-cookie" class="tab-panel" role="tabpanel" aria-labelledby="tab-cookie">
+				<p id="cookie-note" class="note" hidden>Roblox wanted a CAPTCHA for the password sign-in, and its CAPTCHA only works on roblox.com. Signing in with a cookie avoids it.</p>
+				<p class="muted">The most reliable way in through a Wisp server: paste the session cookie from a browser where you're already signed in. No CAPTCHA, and no location check.</p>
 				<div class="warning">
 					<strong>Your .ROBLOSECURITY cookie is full access to your account.</strong> Only paste it into a copy of webblox you trust. It stays in this browser and is only sent to roblox.com, encrypted end to end.
 				</div>
@@ -181,7 +183,7 @@
 			</section>
 
 			<section id="panel-browser" class="tab-panel" role="tabpanel" aria-labelledby="tab-browser" hidden>
-				<p class="muted">Sign in on roblox.com itself, inside webblox's browser. Roblox's verification steps can be slow or loop there; if they do, use quick sign-in or a cookie.</p>
+				<p class="muted">Sign in on roblox.com itself, inside webblox's browser. Roblox's verification steps can be slow or loop there; if they do, use the Cookie option.</p>
 				<a class="btn" href="browser.html">Open roblox.com sign-in</a>
 			</section>
 		</dialog>

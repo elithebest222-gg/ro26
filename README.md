@@ -28,7 +28,12 @@ one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
 ## Using it
 
 1. **Sign in.** Joining a game needs a Roblox session; without one, Roblox answers with error 524
-   "Not authorized". *Sign in* offers four ways in:
+   "Not authorized". *Sign in* offers four ways in; **Cookie** is the most reliable through a Wisp
+   server, so it's the default:
+   - **Cookie**: paste a `.ROBLOSECURITY` value from a browser where you're already signed in.
+     webblox checks it with Roblox before saving it, keeps it in this browser, and only ever sends
+     it to roblox.com. No CAPTCHA and no location check, so it works whatever the Wisp server is.
+     Signing out of webblox forgets it but leaves the browser you copied it from signed in.
    - **Password**: your Roblox username (or email) and password. The site checks them with
      Roblox's own login service, from your browser; TLS runs in the browser, so the Wisp server
      only relays encrypted bytes, and the password is never stored. If Roblox asks for 2-step
@@ -36,18 +41,18 @@ one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
      recovery code. Roblox's background "prove you're not a bot" puzzle is solved automatically.
      Two things can't be done outside roblox.com:
      - **Roblox's CAPTCHA.** Roblox shows it more often to data-center addresses, like most
-       public Wisp servers. If it asks for one, the dialog switches to Quick sign-in, which needs
-       none.
+       public Wisp servers. If it asks for one, the dialog moves you to the Cookie option, which
+       avoids it.
      - **Some 2-step methods.** Security keys, passkeys and approving in the Roblox app aren't
        supported.
-   - **Quick sign-in**: Roblox's own Quick Log In. webblox shows a code (and QR
-     code); approve it at roblox.com/crossdevicelogin/confirmcode, or in the Roblox app under
-     Settings → Quick Log In, on a device where you're signed in. No password or CAPTCHA.
-   - **Cookie**: paste a `.ROBLOSECURITY` value. webblox checks it with Roblox before saving it,
-     keeps it in this browser, and only ever sends it to roblox.com. Signing out of webblox
-     forgets it but leaves the browser you copied it from signed in.
+   - **Quick sign-in**: Roblox's own Quick Log In. webblox shows a code (and QR code); approve it
+     at roblox.com/crossdevicelogin/confirmcode, or in the Roblox app under Settings → Quick Log
+     In, on a device where you're signed in. As an anti-scam measure, Roblox usually **refuses**
+     a quick sign-in approved from a different location than where the request comes from — and
+     the request comes from the Wisp server, not you — so this works only when the Wisp server is
+     near you (your own, on your network). Otherwise, use the Cookie option.
    - **roblox.com**: the normal login page inside a Scramjet 2 browser. Its verification steps can
-     be slow or loop behind the proxy, which is why the other two exist.
+     be slow or loop behind the proxy, which is why the others exist.
 2. **Find a game.** Search, or paste a game link, a `roblox://` or `roblox-player:` link, a share
    link, or a place id. **Charts** on the home page has Roblox's own lists (Top Trending, Most
    Popular, Top Rated, the genre lists…), signed in or not. The details sheet lists public servers

@@ -417,7 +417,7 @@ function signedIn(user) {
 	if (returnUrl) setTimeout(() => location.assign(returnUrl), 800);
 }
 
-const TABS = ["password", "quick", "cookie", "browser"];
+const TABS = ["cookie", "password", "quick", "browser"];
 function selectTab(name) {
 	for (const t of TABS) {
 		const tab = $(`tab-${t}`);
@@ -440,8 +440,8 @@ document.querySelector(".tabs").addEventListener("keydown", (e) => {
 function openSignIn() {
 	$("cookie-status").textContent = "";
 	$("signin-dialog").showModal();
-	selectTab("password");
-	if (!password.busy) $("pw-user").focus();
+	selectTab("cookie");
+	$("cookie-input").focus();
 }
 document.addEventListener("click", (e) => {
 	if (e.target instanceof Element && e.target.closest("[data-signin]")) {
@@ -452,7 +452,7 @@ document.addEventListener("click", (e) => {
 $("signin-dialog").addEventListener("close", () => {
 	quick.stop();
 	password.giveUp();
-	$("quick-note").hidden = true;
+	$("cookie-note").hidden = true;
 });
 
 // Username and password: sent from this browser to Roblox's login API. When Roblox asks for a
@@ -590,11 +590,12 @@ $("password-form").addEventListener("submit", async (e) => {
 		password.reset();
 		if (err.cancelled) password.status("");
 		else password.status(err.userFacing || err.status ? err.message : connectionHint(err), "error");
-		// Roblox's CAPTCHA can't be shown here; Quick sign-in needs none, so go there straight away.
+		// Roblox's CAPTCHA can't be shown here. Quick sign-in avoids it but is often refused
+		// through a Wisp server, so send people to the cookie option, which always works.
 		if (err.captcha) {
-			$("quick-note").hidden = false;
-			selectTab("quick");
-			$("tab-quick").focus();
+			$("cookie-note").hidden = false;
+			selectTab("cookie");
+			$("cookie-input").focus();
 		}
 	} finally {
 		$("pw-submit").disabled = false;
