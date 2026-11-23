@@ -39,6 +39,16 @@
 				<p id="notice" class="notice" hidden></p>
 			</section>
 
+			<section id="friends-section" class="section" hidden>
+				<div class="section-head">
+					<h2>Friends <span id="friends-count" class="count"></span></h2>
+					<div class="row">
+						<button id="friend-requests-btn" class="link-btn" type="button">Requests <span id="friend-requests-badge" class="badge" hidden></span></button>
+						<button id="add-friend-btn" class="link-btn" type="button">Add friend</button>
+					</div>
+				</div>
+				<div id="friends" class="friends-row" aria-live="polite"></div>
+			</section>
 			<section id="recent-section" class="section" hidden>
 				<div class="section-head">
 					<h2>Recently played</h2>
@@ -53,6 +63,14 @@
 				</div>
 				<div id="results" class="grid" aria-live="polite"></div>
 				<div class="more"><button id="more" class="btn" type="button" hidden>Load more</button></div>
+			</section>
+			<section id="charts-section" class="section" hidden>
+				<div class="section-head">
+					<h2>Charts</h2>
+				</div>
+				<div id="chart-chips" class="chips" role="tablist" aria-label="Charts"></div>
+				<div id="charts" class="grid" aria-live="polite"></div>
+				<div class="more"><button id="charts-more" class="btn" type="button" hidden>Show more</button></div>
 			</section>
 		</main>
 
@@ -117,7 +135,6 @@
 					<div class="row end">
 						<span id="pw-status" class="small" role="status"></span>
 						<button id="pw-cancel" class="btn small" type="button" hidden>Start over</button>
-						<button id="pw-quick" class="btn small" type="button" hidden>Use quick sign-in</button>
 						<button id="pw-submit" class="btn primary" type="submit">Sign in</button>
 					</div>
 				</form>
@@ -125,6 +142,7 @@
 			</section>
 
 			<section id="panel-quick" class="tab-panel" role="tabpanel" aria-labelledby="tab-quick" hidden>
+				<p id="quick-note" class="note" hidden>Roblox wanted a CAPTCHA for the password sign-in, and its CAPTCHA only works on roblox.com. Approve this code instead: no CAPTCHA needed.</p>
 				<p class="muted">Approve this sign-in from a phone or computer where you're already signed in to Roblox. No password, CAPTCHA or verification here.</p>
 				<div class="quick-code">
 					<img id="quick-qr" class="quick-qr" alt="QR code for this sign-in" hidden />
@@ -168,6 +186,51 @@
 			</section>
 		</dialog>
 
+		<dialog id="friends-dialog" class="sheet" aria-labelledby="friends-dialog-title">
+			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
+			<h2 id="friends-dialog-title">Friends</h2>
+			<form id="add-friend-form" class="add-friend">
+				<input id="add-friend-name" placeholder="Username" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Username to send a friend request to" />
+				<button class="btn primary small" type="submit">Send request</button>
+			</form>
+			<p id="add-friend-status" class="small status-text" role="status"></p>
+			<h3 class="sheet-sub">Friend requests</h3>
+			<ul id="requests-list" class="people-list"></ul>
+			<div class="more"><button id="requests-more" class="btn small" type="button" hidden>More</button></div>
+		</dialog>
+
+		<dialog id="avatar-dialog" class="sheet sheet-wide" aria-labelledby="avatar-title">
+			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
+			<h2 id="avatar-title">Avatar</h2>
+			<div class="avatar-layout">
+				<div class="avatar-side">
+					<div class="avatar-picture">
+						<img id="avatar-img" alt="Your avatar" />
+						<span id="avatar-busy" class="avatar-busy" hidden>Rendering…</span>
+					</div>
+					<p id="avatar-preview-note" class="small muted" hidden>The picture updates after you save.</p>
+					<div id="avatar-type" class="segmented" role="group" aria-label="Body type">
+						<button type="button" class="seg" data-type="R6" aria-pressed="false">R6</button>
+						<button type="button" class="seg" data-type="R15" aria-pressed="false">R15</button>
+					</div>
+					<div>
+						<div class="small muted">Skin tone</div>
+						<div id="skin-tones" class="swatches"></div>
+					</div>
+					<div class="row end">
+						<span id="avatar-status" class="small status-text" role="status"></span>
+						<button id="avatar-reset" class="btn small" type="button" disabled>Undo</button>
+						<button id="avatar-save" class="btn primary" type="button" disabled>Save</button>
+					</div>
+				</div>
+				<div class="avatar-main">
+					<div id="avatar-tabs" class="chips" role="tablist" aria-label="Item categories"></div>
+					<div id="avatar-items" class="item-grid" aria-live="polite"></div>
+					<div class="more"><button id="avatar-more" class="btn small" type="button" hidden>More</button></div>
+				</div>
+			</div>
+		</dialog>
+
 		<dialog id="settings" class="sheet" aria-labelledby="settings-title">
 			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
 			<h2 id="settings-title">Settings</h2>
@@ -208,6 +271,7 @@
 				<p id="settings-account" class="muted">Not signed in.</p>
 				<div class="row">
 					<button class="btn small" type="button" data-signin>Sign in</button>
+					<button id="edit-avatar" class="btn small" type="button" hidden>Edit avatar</button>
 					<button id="signout" class="btn small danger" type="button" hidden>Sign out</button>
 				</div>
 			</div>

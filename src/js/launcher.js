@@ -20,6 +20,9 @@ import { RobloxNet } from "./lib/robloxnet.js";
 import { importScramjetSession } from "./lib/scramjet-session.js";
 import { cancelQuickLogin, finishQuickLogin, quickLoginStatus, signInWithCookie, signInWithPassword, signOut, startQuickLogin } from "./lib/session.js";
 import { loadSettings, normalizeWispUrl, saveSettings } from "./lib/settings.js";
+import { initAvatar } from "./home/avatar-view.js";
+import { initCharts } from "./home/charts-view.js";
+import { initFriends } from "./home/friends-view.js";
 
 const BASE = new URL("./", location.href);
 const $ = (id) => document.getElementById(id);
@@ -140,6 +143,7 @@ function card(game) {
 	meta.className = "card-meta";
 	const votes = (game.upVotes || 0) + (game.downVotes || 0);
 	const bits = [];
+	if (game.sponsored) bits.push("Sponsored");
 	if (votes > 0) bits.push(`${Math.round((100 * game.upVotes) / votes)}% rating`);
 	if (game.playerCount !== null && game.playerCount !== undefined) bits.push(`${compact.format(game.playerCount)} playing`);
 	meta.textContent = bits.join(" · ");
@@ -317,6 +321,25 @@ async function loadServers(more = false) {
 $("details-servers-btn").onclick = () => loadServers(false);
 $("servers-more").onclick = () => loadServers(true);
 
+// ---- home sections: charts, friends, avatar ----------------------------------------------
+
+const views = {
+	$,
+	getNet,
+	setImage,
+	card,
+	openDetails,
+	launch,
+	notice,
+	connectionHint,
+	emptyState,
+	skeletons,
+	onAvatarSaved: () => refreshAccount(),
+};
+const charts = initCharts(views);
+const friends = initFriends(views);
+const avatar = initAvatar(views);
+
 // ---- account -----------------------------------------------------------------------------
 
 let user = null;
@@ -330,7 +353,11 @@ async function refreshAccount() {
 		notice(connectionHint(err), "error");
 	}
 	$("signout").hidden = !user;
+	$("edit-avatar").hidden = !user;
 	$("settings-account").textContent = user ? `Signed in as ${user.displayName} (@${user.name}).` : "Not signed in. You need a Roblox account to join games.";
+	avatar.setUser(user);
+	if (user) friends.show(user);
+	else friends.hide();
 	if (!user) {
 		const b = document.createElement("button");
 		b.type = "button";
@@ -340,8 +367,11 @@ async function refreshAccount() {
 		box.replaceChildren(b);
 		return;
 	}
-	const chip = document.createElement("span");
+	const chip = document.createElement("button");
+	chip.type = "button";
 	chip.className = "user-chip";
+	chip.title = "Edit your avatar";
+	chip.onclick = () => avatar.open();
 	const img = document.createElement("img");
 	img.alt = "";
 	const name = document.createElement("span");
@@ -422,6 +452,7 @@ document.addEventListener("click", (e) => {
 $("signin-dialog").addEventListener("close", () => {
 	quick.stop();
 	password.giveUp();
+	$("quick-note").hidden = true;
 });
 
 // Username and password: sent from this browser to Roblox's login API. When Roblox asks for a
@@ -521,7 +552,6 @@ $("password-form").addEventListener("submit", async (e) => {
 		return;
 	}
 	if (password.busy) return;
-	$("pw-quick").hidden = true;
 	password.setBusy(true);
 	$("pw-submit").disabled = true;
 	password.status("Signing in…");
@@ -560,15 +590,16 @@ $("password-form").addEventListener("submit", async (e) => {
 		password.reset();
 		if (err.cancelled) password.status("");
 		else password.status(err.userFacing || err.status ? err.message : connectionHint(err), "error");
-		$("pw-quick").hidden = !err.captcha;
+		// Roblox's CAPTCHA can't be shown here; Quick sign-in needs none, so go there straight away.
+		if (err.captcha) {
+			$("quick-note").hidden = false;
+			selectTab("quick");
+			$("tab-quick").focus();
+		}
 	} finally {
 		$("pw-submit").disabled = false;
 	}
 });
-$("pw-quick").onclick = () => {
-	selectTab("quick");
-	$("tab-quick").focus();
-};
 $("pw-cancel").onclick = () => {
 	password.stop?.abort();
 	password.giveUp();
@@ -749,8 +780,14 @@ new BroadcastChannel("__scramjet_controller_channel").onmessage = () => {
 	refreshAccount();
 };
 
+$("edit-avatar").onclick = () => {
+	$("settings").close();
+	avatar.open();
+};
+
 renderRecent();
 refreshAccount();
+charts.load();
 const startParams = new URLSearchParams(location.search);
 const q = startParams.get("q");
 if (q) {

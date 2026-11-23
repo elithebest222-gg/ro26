@@ -36,7 +36,8 @@ one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
      recovery code. Roblox's background "prove you're not a bot" puzzle is solved automatically.
      Two things can't be done outside roblox.com:
      - **Roblox's CAPTCHA.** Roblox shows it more often to data-center addresses, like most
-       public Wisp servers. If it asks for one, use Quick sign-in.
+       public Wisp servers. If it asks for one, the dialog switches to Quick sign-in, which needs
+       none.
      - **Some 2-step methods.** Security keys, passkeys and approving in the Roblox app aren't
        supported.
    - **Quick sign-in**: Roblox's own Quick Log In. webblox shows a code (and QR
@@ -48,9 +49,23 @@ one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
    - **roblox.com**: the normal login page inside a Scramjet 2 browser. Its verification steps can
      be slow or loop behind the proxy, which is why the other two exist.
 2. **Find a game.** Search, or paste a game link, a `roblox://` or `roblox-player:` link, a share
-   link, or a place id. The details sheet lists public servers if you want a specific one.
+   link, or a place id. **Charts** on the home page has Roblox's own lists (Top Trending, Most
+   Popular, Top Rated, the genre lists…), signed in or not. The details sheet lists public servers
+   if you want a specific one.
 3. **Play.** The player opens in its own tab. It has to be a top-level page, because the engine
    needs cross-origin isolation.
+
+Signed in, the home page also has:
+
+- **Friends**: who's online, in Studio or in a game (and which one), refreshed every minute.
+  **Join** follows a friend into their server when their privacy settings allow it. *Requests*
+  lists friend requests to accept or decline; *Add friend* sends one by username. If Roblox
+  wants a CAPTCHA for that, send it from the Roblox app instead.
+- **Avatar** (click your name at the top): your avatar, R6 or R15, skin tone, and everything you
+  own by category (hats, hair, heads and faces, accessories, clothing, layered clothing, body
+  parts, animations), plus your saved outfits. Tap items to put them on or take them off, within
+  Roblox's limits (three hats, ten accessories, one shirt…). Save sends the changes and Roblox
+  renders a new picture.
 
 Pressing Play (or Join on a friend) on roblox.com inside the sign-in browser also works. The
 launch is caught and opened in the player instead of the desktop app.

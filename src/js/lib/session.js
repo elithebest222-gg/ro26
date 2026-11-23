@@ -133,7 +133,7 @@ const CODE_PATHS = { Authenticator: "authenticator", Email: "email", SMS: "sms",
 const OTHER_METHODS = { SecurityKey: "a security key", Passkey: "a passkey", CrossDevice: "approval in the Roblox app", Password: "a password" };
 
 export const CAPTCHA_MESSAGE =
-	"Roblox wants a CAPTCHA for this sign-in, and its CAPTCHA only works on roblox.com itself. Use quick sign-in (approve it from a device where you're signed in) or the cookie option. CAPTCHAs are less likely through a Wisp server on a home connection.";
+	"Roblox wants a CAPTCHA for this sign-in, and its CAPTCHA only works on roblox.com itself. Quick sign-in needs none: approve it from a device where you're signed in. CAPTCHAs are less likely through a Wisp server on a home connection.";
 
 const toBase64 = (text) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
 const fromBase64 = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
@@ -362,6 +362,25 @@ async function answerChallenges(net, challenge, ask) {
 		challenge = nextChallenge(reply, challenge);
 	}
 	return answered;
+}
+
+/**
+ * Runs a Roblox request that may come back with a challenge, answers it (2-step verification and
+ * proof of work here; a CAPTCHA is reported) and repeats the request with the answer.
+ * `send(headers)` makes the request with the extra headers it is given.
+ */
+export async function withChallenges(net, send, ask = {}) {
+	let answered = null;
+	for (let round = 0; round < 5; round++) {
+		try {
+			return await send(answered ? challengeHeaders(answered) : {});
+		} catch (err) {
+			const challenge = readChallenge(err);
+			if (!challenge) throw err;
+			answered = await answerChallenges(net, challenge, ask);
+		}
+	}
+	throw fail("Roblox kept asking for more checks. Try again later.");
 }
 
 /**
