@@ -7,13 +7,19 @@
 //    or from Roblox's CDN when the site was built without one, and kept in a per-version cache.
 // 3. Roblox traffic: fetch/XHR from the page and from the engine's workers to *.roblox.com and
 //    *.rbxcdn.com is handed to the page's network worker, which sends it over Wisp.
+// 4. Game connections: the engine's worker threads get a WebTransport stand-in (wt-shim.js) that
+//    can carry the game connection through Wisp too (see tunnel.worker.js).
 
 import { isProxiedHost, isRbxCdnHost } from "../js/lib/hosts.js";
 import { installWebTransportDiag } from "../js/lib/wt-diag.js";
 
-// Put in front of WebClient.js when the engine starts one of its worker threads, so WebTransport
-// attempts made there show up in the player's diagnostics too.
-const WORKER_PRELUDE = `;try{(${installWebTransportDiag.toString()})(self)}catch(e){}\n`;
+// Put in front of WebClient.js when the engine starts one of its worker threads: the WebTransport
+// stand-in that routes game connections (told which page the thread belongs to), then the
+// recorder that puts WebTransport attempts in the player's diagnostics.
+const SHIM_URL = new URL("wt-shim.js", self.registration.scope).href;
+const workerPrelude = (clientId) =>
+	`;self.__webbloxClient=${JSON.stringify(clientId || "")};try{importScripts(${JSON.stringify(SHIM_URL)})}catch(e){console.warn("[webblox] WebTransport stand-in failed to load:",e)}\n` +
+	`;try{(${installWebTransportDiag.toString()})(self)}catch(e){}\n`;
 
 const SCOPE = new URL(self.registration.scope);
 const ORIGIN = self.location.origin;
@@ -100,7 +106,7 @@ async function sameOrigin(event, url) {
 	try {
 		let res = await engineFile(event, cfg, rel, href);
 		if (rel === "WebClient.js" && req.destination === "worker" && res.ok) {
-			res = new Response(WORKER_PRELUDE + (await res.text()), {
+			res = new Response(workerPrelude(event.clientId) + (await res.text()), {
 				status: 200,
 				headers: { "Content-Type": "text/javascript; charset=utf-8" },
 			});
@@ -283,6 +289,9 @@ let nextId = 1;
 self.addEventListener("message", (event) => {
 	const data = event.data;
 	if (data?.type === "webblox:bridge" && event.ports[0]) attachBridge(event.source?.id || `anon-${nextId++}`, event.ports[0]);
+	// The page's id, which its engine threads also get (from the fetch of their script), so the
+	// page's tunnel worker can tell its own engine's connections from another tab's.
+	else if (data?.type === "webblox:client-id") event.source?.postMessage({ type: "webblox:client-id", id: event.source.id || "" });
 });
 
 function failPending(bridge, why) {

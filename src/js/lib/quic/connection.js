@@ -151,10 +151,11 @@ export class QuicConnection {
 	 * @param {(data: Uint8Array) => void} o.sendDatagram   send one UDP payload
 	 * @param {string} o.serverName                         SNI
 	 * @param {Uint8Array[]} o.certHashes                    pinned SHA-256 certificate hashes
+	 * @param {Function} [o.verifyChain]                     WebPKI check when nothing is pinned
 	 * @param {object} o.events   { streamOpen(id), streamData(id, data, fin), streamReset(id, code),
 	 *                              stopSending(id, code), datagram(data), closed(info) }
 	 */
-	constructor({ sendDatagram, serverName, certHashes, events }) {
+	constructor({ sendDatagram, serverName, certHashes, verifyChain, events }) {
 		this.sendUdp = sendDatagram;
 		this.events = events;
 		this.scid = randomBytes(8);
@@ -169,6 +170,7 @@ export class QuicConnection {
 		this.tls = new TlsClient({
 			serverName,
 			certHashes,
+			verifyChain,
 			transportParams: encodeTransportParams([
 				[TP.maxIdleTimeout, IDLE_TIMEOUT_MS],
 				[TP.initialMaxData, LOCAL_WINDOW],
@@ -344,7 +346,8 @@ export class QuicConnection {
 
 	fail(err) {
 		if (this.state === "closed") return;
-		const e = err instanceof QuicError ? err : new QuicError(err?.message || String(err), 0x01);
+		// TLS failures close with CRYPTO_ERROR (0x100 + the alert), anything else INTERNAL_ERROR.
+		const e = err instanceof QuicError ? err : new QuicError(err?.message || String(err), typeof err?.alert === "number" ? 0x100 + err.alert : 0x01);
 		if (this.state === "established" || this.state === "connecting") {
 			this.closeInfo = { code: e.code || 0x01, reason: e.message.slice(0, 100), app: false, local: true, error: e };
 			this.state = "closing";

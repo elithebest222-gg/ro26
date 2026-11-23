@@ -153,7 +153,10 @@ function statusOf(block) {
 
 /**
  * @param {string} url
- * @param {{serverCertificateHashes?: {algorithm: string, value: BufferSource}[]}} options
+ * @param {{serverCertificateHashes?: {algorithm: string, value: BufferSource}[],
+ *          verifyChain?: (chain: Uint8Array[], host: string) => Promise<unknown>}} options
+ *        verifyChain (not part of the browser API) checks the server's certificate chain when no
+ *        hashes are pinned, as the browser would with its own trust store
  * @param {{send(data: Uint8Array): void, onReceive(cb: (data: Uint8Array) => void): void, close(): void}} udp
  * @param {string} origin  value of the Origin header (the page's origin)
  */
@@ -211,8 +214,9 @@ export class TunnelWebTransport {
 		};
 
 		this.conn = new QuicConnection({
-			serverName: target.hostname,
+			serverName: target.hostname.replace(/^\[|\]$/g, ""),
 			certHashes: hashes,
+			verifyChain: options.verifyChain,
 			sendDatagram: (d) => udp.send(d),
 			events: {
 				streamOpen: (id) => this.onStreamOpen(id),

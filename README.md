@@ -22,6 +22,7 @@ one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
 | --- | --- | --- |
 | Engine source: `local` copies the engine (≈230 MB) into the site; `cdn` streams it from Roblox's CDN at play time | repository variable `WEBBLOX_ENGINE`, or the workflow's `engine` input | `local` |
 | Wisp server | in the app: Settings | `wss://wisp.mercurywork.shop/` |
+| Game connection: direct, through the Wisp server, or automatic (direct, falling back to Wisp) | in the app: Settings | automatic |
 | Renderer (WebGPU / WebGL 2) | in the app: Settings | automatic |
 
 ## Using it
@@ -45,9 +46,29 @@ Pressing Play (or Join on a friend) on roblox.com inside the sign-in browser als
 launch is caught and opened in the player instead of the desktop app.
 
 Requirements: a current Chrome or Edge (other browsers are untested). The browser needs
-WebAssembly threads, WebTransport (game traffic goes straight to `*.qdmux.roblox.com`), and
-WebGPU with BC/ETC2 texture compression or WebGL 2. Only one game tab can run at a time.
-Private servers are not supported yet.
+WebAssembly threads, WebTransport, and WebGPU with BC/ETC2 texture compression or WebGL 2. Only
+one game tab can run at a time. Private servers are not supported yet.
+
+### On networks that block Roblox
+
+Everything except the game itself (sign-in, search, joining, assets) always goes through the Wisp
+server. The game connection is WebTransport (QUIC over UDP) to `*.qdmux.roblox.com`. Settings →
+*Game connection* decides how it travels:
+
+- **Automatic** (default): straight to Roblox. If that fails, or hasn't connected after 3 seconds,
+  it goes through the Wisp server instead, and later connections in that tab go through Wisp
+  straight away.
+- **Direct to Roblox**: never through Wisp, as before.
+- **Always through the Wisp server**: for networks where the direct connection never works.
+
+Through Wisp, the browser runs its own QUIC client and sends the game's UDP packets over a Wisp
+UDP stream. That needs a Wisp server that allows UDP. Many public servers turn it off, so run your
+own (for example `pip install wisp-python`, then `python3 -m wisp.server`) somewhere that can
+reach Roblox, and enter its address in Settings. The Wisp server only relays encrypted packets:
+TLS runs in your browser, and the game server's certificate is checked the way the browser would
+check it. The game is only as fast as the route through the Wisp server, and packets ride a
+WebSocket (TCP), so a lossy link adds more lag than a direct connection would. The diagnostics
+under a failed join show which route each connection took.
 
 ## How it works
 
@@ -60,8 +81,12 @@ player/ (index.html + boot.js)            player/sw.js (scope player/)
   engine pthreads (em-pthread workers)      • engine/<version>/* from the site (or Roblox's CDN), cached per version
         │ fetch/XHR to *.roblox.com ──────▶ • Roblox requests → MessagePort → net.worker.js
         │                                                                       │
-        │ WebTransport (game) ─▶ *.qdmux.roblox.com              cookie jar, CSRF, request fixes
-                                                                 └─▶ Wisp ─TLS (epoxy)─▶ *.roblox.com
+        │                                                        cookie jar, CSRF, request fixes
+        │                                                        └─▶ Wisp ─TLS (epoxy)─▶ *.roblox.com
+        │ WebTransport (game): wt-shim.js decides the route
+        ├─ direct ─▶ browser WebTransport ─▶ *.qdmux.roblox.com
+        └─ Wisp ─▶ BroadcastChannel ─▶ tunnel.worker.js: QUIC + TLS 1.3 + HTTP/3 in JS
+                                         └─▶ Wisp UDP stream (own WebSocket) ─▶ *.qdmux.roblox.com
 ```
 
 - **Engine.** `scripts/vendor-engine.mjs pin` reads the current version from
@@ -98,6 +123,22 @@ player/ (index.html + boot.js)            player/sw.js (scope player/)
   store `state`, key `cookies`). The player copies the roblox.com cookies, including
   `.ROBLOSECURITY`, into webblox's own jar whenever that jar is newer. webblox's jar lives in
   IndexedDB rather than localStorage, because the network worker can't use localStorage.
+- **Game connection** (`src/js/lib/wt-shim.js`, `src/player/tunnel.worker.js`, `src/js/lib/quic/`).
+  The service worker puts a WebTransport stand-in in front of `WebClient.js` in every engine
+  thread, and `boot.js` installs it in the page. It routes each connection by the setting. The
+  direct route hands over the browser's own WebTransport untouched. The Wisp route runs in the
+  tunnel worker:
+  - a QUIC v1 client (RFC 9000/9001/9002, with loss recovery, flow and congestion control, Retry
+    and key updates);
+  - TLS 1.3 on Web Crypto (X25519 or P-256, AES-128-GCM);
+  - HTTP/3 with the WebTransport extended CONNECT.
+
+  The packets travel over a Wisp UDP stream (Wisp v1 or v2) on a WebSocket of its own, so they
+  never queue behind asset downloads. The server certificate is checked like Chromium checks it.
+  When the engine passes `serverCertificateHashes`, the certificate must match one of the hashes.
+  Otherwise the chain must verify for the host name against Mozilla's root store, which the build
+  copies from Node's bundled roots. Either way the server has to prove it holds the key. The
+  engine sees the standard WebTransport API either way.
 - **Launch catching** (`src/js/lib/launch-plugin.js`). A Scramjet frame plugin catches four kinds of
   launch: `roblox-player:`/`roblox://` set as an iframe `src` (property or `setAttribute`),
   passed to `window.open`, or used as a link; and `/games/start?placeId=` reached by link,

@@ -150,6 +150,15 @@
 					<span id="wisp-result" class="muted small"></span>
 				</div>
 				<label class="field">
+					<span>Game connection</span>
+					<select id="game-connection">
+						<option value="auto">Automatic (direct, or through Wisp if that fails)</option>
+						<option value="direct">Direct to Roblox</option>
+						<option value="wisp">Always through the Wisp server</option>
+					</select>
+					<small class="muted">The game itself talks to Roblox's game servers over WebTransport (UDP). Networks that block Roblox stop that, so it can go through the Wisp server instead; that server must allow UDP, and the game is only as fast as the route through it.</small>
+				</label>
+				<label class="field">
 					<span>Renderer</span>
 					<select id="renderer">
 						<option value="auto">Automatic (WebGPU when supported)</option>

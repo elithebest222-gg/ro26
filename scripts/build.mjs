@@ -13,6 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { rootCertificates } from "node:tls";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -67,13 +68,26 @@ async function bundle() {
 	});
 	// The player and its worker are self-contained, so everything they load stays inside the
 	// player service worker's scope.
-	for (const entry of ["player/boot.js", "player/net.worker.js"]) {
+	for (const entry of ["player/boot.js", "player/net.worker.js", "player/tunnel.worker.js"]) {
 		await esbuild.build({ ...common, entryPoints: [path.join(SRC, entry)], outfile: path.join(OUT, entry), format: "esm" });
 	}
-	// Service workers are classic scripts.
-	for (const entry of ["sw.js", "player/sw.js"]) {
-		await esbuild.build({ ...common, entryPoints: [path.join(SRC, entry)], outfile: path.join(OUT, entry), format: "iife" });
+	// Service workers, and the WebTransport stand-in the engine's (classic) workers import, are
+	// classic scripts.
+	for (const [entry, out] of [
+		["sw.js", "sw.js"],
+		["player/sw.js", "player/sw.js"],
+		["player/wt-shim.entry.js", "player/wt-shim.js"],
+	]) {
+		await esbuild.build({ ...common, entryPoints: [path.join(SRC, entry)], outfile: path.join(OUT, out), format: "iife" });
 	}
+}
+
+// Trusted roots for game connections through the Wisp tunnel whose certificate is not pinned:
+// Mozilla's root store as bundled with Node, the same set browsers use.
+async function writeRoots() {
+	const roots = rootCertificates.map((pem) => pem.replace(/-----(BEGIN|END) CERTIFICATE-----|\s+/g, ""));
+	const file = { source: `Mozilla root store from Node ${process.version}`, roots };
+	await writeFile(path.join(OUT, "player/roots.json"), JSON.stringify(file));
 }
 
 async function copyScramjet() {
@@ -141,6 +155,7 @@ await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });
 await copyStatic();
 await bundle();
+await writeRoots();
 await copyScramjet();
 const engine = await installEngine();
 await writeFile(path.join(OUT, ".nojekyll"), "");

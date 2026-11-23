@@ -535,6 +535,7 @@ fetch("player/engine.json", { cache: "no-cache" })
 $("open-settings").onclick = () => {
 	$("wisp-url").value = settings.wispUrl;
 	$("renderer").value = settings.renderer;
+	$("game-connection").value = settings.gameConnection;
 	$("wisp-result").textContent = "";
 	$("settings").showModal();
 };
@@ -565,7 +566,7 @@ $("settings-form").addEventListener("submit", (e) => {
 		return;
 	}
 	const changed = wispUrl !== settings.wispUrl;
-	settings = saveSettings({ wispUrl, renderer: $("renderer").value });
+	settings = saveSettings({ wispUrl, renderer: $("renderer").value, gameConnection: $("game-connection").value });
 	$("settings").close();
 	if (changed) {
 		netPromise = null;

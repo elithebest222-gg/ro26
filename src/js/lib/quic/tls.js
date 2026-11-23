@@ -1,14 +1,26 @@
-// TLS 1.3 client handshake for QUIC (RFC 8446 + RFC 9001), just enough for WebTransport with
-// pinned certificate hashes: one cipher suite (TLS_AES_128_GCM_SHA256), one group (secp256r1),
-// ECDSA-P256 or RSA-PSS server signatures, ALPN "h3". The server certificate is accepted only if
-// its SHA-256 matches one of the pinned hashes, and must prove it holds the key (CertificateVerify).
+// TLS 1.3 client handshake for QUIC (RFC 8446 + RFC 9001), enough for WebTransport: one cipher
+// suite (TLS_AES_128_GCM_SHA256), X25519 or P-256 key exchange, ECDSA or RSA-PSS server
+// signatures, ALPN "h3". The server certificate is checked like a browser does:
+//   - with pinned hashes (serverCertificateHashes), it must match one of them;
+//   - otherwise its chain must verify for the server name against trusted roots (verifyChain).
+// Either way the server must prove it holds the key (CertificateVerify).
 
-import { Reader, Writer, concat, equalBytes, utf8 } from "./bytes.js";
-import { generateKeyShare, hkdfExpandLabel, hkdfExtract, hmac, randomBytes, sha256, sharedSecret, verifySignature } from "./crypto.js";
+import { Reader, Writer, concat, equalBytes, hex, utf8 } from "./bytes.js";
+import { generateKeyShares, hkdfExpandLabel, hkdfExtract, hmac, randomBytes, sha256, sharedSecret } from "./crypto.js";
+import { CertificateError, SIGNATURE_SCHEMES, parseCertificate, parseIp, verifyHandshakeSignature } from "./x509.js";
 
 const HS = { clientHello: 1, serverHello: 2, newSessionTicket: 4, encryptedExtensions: 8, certificate: 11, certificateRequest: 13, certificateVerify: 15, finished: 20 };
 const EXT = { serverName: 0, supportedGroups: 10, signatureAlgorithms: 13, alpn: 16, supportedVersions: 43, keyShare: 51, quicTransportParameters: 57 };
 const HRR_RANDOM = "cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c";
+
+// A TLS failure with the alert it maps to (QUIC closes with CRYPTO_ERROR 0x100 + alert).
+export class TlsAlert extends Error {
+	constructor(message, alert) {
+		super(message);
+		this.name = "TlsAlert";
+		this.alert = alert;
+	}
+}
 
 export const TP = {
 	originalDestinationConnectionId: 0x00,
@@ -55,21 +67,28 @@ export function decodeTransportParams(bytes) {
 
 export class TlsClient {
 	/**
-	 * @param {{serverName: string, transportParams: Uint8Array, certHashes: Uint8Array[]}} o
+	 * @param {object} o
+	 * @param {string} o.serverName
+	 * @param {Uint8Array} o.transportParams
+	 * @param {Uint8Array[]} [o.certHashes]   pinned SHA-256 hashes of acceptable server certificates
+	 * @param {(chain: Uint8Array[], serverName: string) => Promise<unknown>} [o.verifyChain]
+	 *        validates the server's chain (leaf first) when nothing is pinned; throws if untrusted
 	 */
-	constructor({ serverName, transportParams, certHashes }) {
+	constructor({ serverName, transportParams, certHashes, verifyChain }) {
 		this.serverName = serverName;
 		this.transportParams = transportParams;
 		this.certHashes = certHashes || [];
+		this.verifyChain = verifyChain || null;
 		this.transcript = [];
 		this.buffers = { initial: new Uint8Array(0), handshake: new Uint8Array(0), app: new Uint8Array(0) };
 		this.state = "start";
 		this.peerParams = null;
-		this.cert = null;
+		this.leaf = null;
 	}
 
 	async clientHello() {
-		this.share = await generateKeyShare();
+		this.shares = await generateKeyShares();
+		const sni = !parseIp(this.serverName); // IP literals never go in server_name (RFC 6066)
 		const w = new Writer(512);
 		w.u8(HS.clientHello).vec(3, (b) => {
 			b.u16(0x0303).bytes(randomBytes(32));
@@ -78,12 +97,12 @@ export class TlsClient {
 			b.u8(1).u8(0);
 			b.vec(2, (e) => {
 				const ext = (type, fn) => e.u16(type).vec(2, fn);
-				ext(EXT.serverName, (x) => x.vec(2, (l) => l.u8(0).vec(2, (n) => n.bytes(utf8(this.serverName)))));
-				ext(EXT.supportedGroups, (x) => x.vec(2, (l) => l.u16(0x0017)));
-				ext(EXT.signatureAlgorithms, (x) => x.vec(2, (l) => l.u16(0x0403).u16(0x0804)));
+				if (sni) ext(EXT.serverName, (x) => x.vec(2, (l) => l.u8(0).vec(2, (n) => n.bytes(utf8(this.serverName)))));
+				ext(EXT.supportedGroups, (x) => x.vec(2, (l) => this.shares.forEach((s) => l.u16(s.group))));
+				ext(EXT.signatureAlgorithms, (x) => x.vec(2, (l) => SIGNATURE_SCHEMES.forEach((s) => l.u16(s))));
 				ext(EXT.alpn, (x) => x.vec(2, (l) => l.vec(1, (p) => p.bytes(utf8("h3")))));
 				ext(EXT.supportedVersions, (x) => x.vec(1, (l) => l.u16(0x0304)));
-				ext(EXT.keyShare, (x) => x.vec(2, (l) => l.u16(0x0017).vec(2, (k) => k.bytes(this.share.publicRaw))));
+				ext(EXT.keyShare, (x) => x.vec(2, (l) => this.shares.forEach((s) => l.u16(s.group).vec(2, (k) => k.bytes(s.publicRaw)))));
 				ext(EXT.quicTransportParameters, (x) => x.bytes(this.transportParams));
 			});
 		});
@@ -119,36 +138,44 @@ export class TlsClient {
 	async handle(level, type, msg) {
 		const body = new Reader(msg, 4);
 		if (level === "app") return []; // NewSessionTicket etc.: not used
-		if (this.state === "wait-server-hello" && type === HS.serverHello) return this.serverHello(msg, body);
-		if (this.state === "wait-ee" && type === HS.encryptedExtensions) return this.encryptedExtensions(msg, body);
-		if (this.state === "wait-cert" && type === HS.certificateRequest) throw new Error("server asked for a client certificate");
-		if (this.state === "wait-cert" && type === HS.certificate) return this.certificate(msg, body);
-		if (this.state === "wait-cv" && type === HS.certificateVerify) return this.certificateVerify(msg, body);
-		if (this.state === "wait-finished" && type === HS.finished) return this.finished(msg, body);
-		throw new Error(`unexpected TLS message ${type} in state ${this.state}`);
+		try {
+			if (this.state === "wait-server-hello" && type === HS.serverHello) return await this.serverHello(msg, body);
+			if (this.state === "wait-ee" && type === HS.encryptedExtensions) return await this.encryptedExtensions(msg, body);
+			if (this.state === "wait-cert" && type === HS.certificateRequest) throw new TlsAlert("the server asked for a client certificate", 10);
+			if (this.state === "wait-cert" && type === HS.certificate) return await this.certificate(msg, body);
+			if (this.state === "wait-cv" && type === HS.certificateVerify) return await this.certificateVerify(msg, body);
+			if (this.state === "wait-finished" && type === HS.finished) return await this.finished(msg, body);
+		} catch (err) {
+			if (err instanceof TlsAlert || err instanceof CertificateError) throw err;
+			throw new TlsAlert(`could not read the server's TLS ${type} message (${err.message})`, 50);
+		}
+		throw new TlsAlert(`unexpected TLS message ${type} in state ${this.state}`, 10);
 	}
 
 	async serverHello(msg, r) {
 		r.u16();
 		const random = r.bytes(32);
-		if ([...random].map((b) => b.toString(16).padStart(2, "0")).join("") === HRR_RANDOM) throw new Error("server sent HelloRetryRequest");
+		if (hex(random) === HRR_RANDOM) throw new TlsAlert("the server asked for a different key exchange (HelloRetryRequest)", 40);
 		r.vec(1);
 		const suite = r.u16();
-		if (suite !== 0x1301) throw new Error(`server chose cipher suite 0x${suite.toString(16)}`);
+		if (suite !== 0x1301) throw new TlsAlert(`the server chose cipher suite 0x${suite.toString(16)}`, 47);
 		r.u8();
 		const exts = new Reader(r.vec(2));
+		let share = null;
 		let peerShare = null;
 		while (exts.left) {
 			const type = exts.u16();
 			const data = new Reader(exts.vec(2));
 			if (type === EXT.keyShare) {
-				if (data.u16() !== 0x0017) throw new Error("server chose an unsupported key exchange group");
+				const group = data.u16();
+				share = this.shares.find((s) => s.group === group);
+				if (!share) throw new TlsAlert(`the server chose key exchange group 0x${group.toString(16)}, which was not offered`, 47);
 				peerShare = data.vec(2);
-			} else if (type === EXT.supportedVersions && data.u16() !== 0x0304) throw new Error("server did not choose TLS 1.3");
+			} else if (type === EXT.supportedVersions && data.u16() !== 0x0304) throw new TlsAlert("the server did not choose TLS 1.3", 70);
 		}
-		if (!peerShare) throw new Error("ServerHello without a key share");
+		if (!share) throw new TlsAlert("ServerHello without a key share", 109);
 		this.transcript.push(msg);
-		const shared = await sharedSecret(this.share.privateKey, peerShare);
+		const shared = await sharedSecret(share, peerShare);
 		const zeros = new Uint8Array(32);
 		const early = await hkdfExtract(zeros, zeros);
 		const emptyHash = await sha256(new Uint8Array(0));
@@ -170,20 +197,32 @@ export class TlsClient {
 			if (type === EXT.alpn) alpn = new TextDecoder().decode(new Reader(new Reader(data).vec(2)).vec(1));
 			else if (type === EXT.quicTransportParameters) this.peerParams = decodeTransportParams(data);
 		}
-		if (alpn !== "h3") throw new Error(`server did not agree to h3 (ALPN ${alpn})`);
-		if (!this.peerParams) throw new Error("server sent no QUIC transport parameters");
+		if (alpn !== "h3") throw new TlsAlert(`the server did not agree to HTTP/3 (ALPN ${alpn})`, 120);
+		if (!this.peerParams) throw new TlsAlert("the server sent no QUIC transport parameters", 109);
 		this.transcript.push(msg);
 		this.state = "wait-cert";
 		return [];
 	}
 
 	async certificate(msg, r) {
-		r.vec(1);
+		r.vec(1); // certificate_request_context
 		const list = new Reader(r.vec(3));
-		if (!list.left) throw new Error("server sent no certificate");
-		this.cert = list.vec(3).slice();
-		const digest = await sha256(this.cert);
-		if (!this.certHashes.some((h) => equalBytes(h, digest))) throw new Error("server certificate does not match the pinned hash");
+		const chain = [];
+		while (list.left) {
+			chain.push(list.vec(3).slice());
+			list.vec(2); // per-certificate extensions
+		}
+		if (!chain.length) throw new CertificateError("the server sent no certificate");
+		if (this.certHashes.length) {
+			const digest = await sha256(chain[0]);
+			if (!this.certHashes.some((h) => equalBytes(h, digest))) throw new CertificateError("the server's certificate does not match the pinned hash");
+		} else if (this.verifyChain) await this.verifyChain(chain, this.serverName);
+		else throw new CertificateError("no way to verify the server's certificate");
+		try {
+			this.leaf = parseCertificate(chain[0]);
+		} catch {
+			throw new CertificateError("the server's certificate could not be read");
+		}
 		this.transcript.push(msg);
 		this.state = "wait-cv";
 		return [];
@@ -193,7 +232,7 @@ export class TlsClient {
 		const scheme = r.u16();
 		const signature = r.vec(2);
 		const content = concat(new Uint8Array(64).fill(0x20), utf8("TLS 1.3, server CertificateVerify"), new Uint8Array([0]), await this.transcriptHash());
-		if (!(await verifySignature(this.cert, scheme, signature, content))) throw new Error("server CertificateVerify signature is invalid");
+		await verifyHandshakeSignature(this.leaf, scheme, signature, content);
 		this.transcript.push(msg);
 		this.state = "wait-finished";
 		return [];
@@ -203,7 +242,7 @@ export class TlsClient {
 		const verifyData = r.bytes(32);
 		const serverKey = await hkdfExpandLabel(this.serverHs, "finished", new Uint8Array(0), 32);
 		const expected = await hmac(serverKey, await this.transcriptHash());
-		if (!equalBytes(expected, verifyData)) throw new Error("server Finished is invalid");
+		if (!equalBytes(expected, verifyData)) throw new TlsAlert("the server's Finished message is invalid", 51);
 		this.transcript.push(msg);
 
 		const thServerFinished = await this.transcriptHash();

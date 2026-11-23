@@ -5,6 +5,7 @@
 import { authenticatedUser, followUser } from "../js/lib/roblox-api.js";
 import { devRootCerts, loadSettings } from "../js/lib/settings.js";
 import { installWebTransportDiag } from "../js/lib/wt-diag.js";
+import { installWebTransportShim } from "../js/lib/wt-shim.js";
 
 const APP_BASE = new URL("../", location.href);
 const params = new URLSearchParams(location.search);
@@ -53,6 +54,22 @@ function formatEvent(e) {
 			return `${t} [${e.where}] WebTransport failed after ${e.ms} ms: ${e.error}`;
 		case "wt-closed":
 			return `${t} [${e.where}] WebTransport closed after ${e.ms} ms${has(e.closeCode) ? `, code ${e.closeCode}` : ""}${e.reason ? `, "${e.reason}"` : ""}${e.error ? `: ${e.error}` : ""}`;
+		case "wt-route":
+			return `${t} [${e.where}] game connection to ${e.url} ${e.via === "wisp" ? "through Wisp" : "direct"}, ready after ${e.ms} ms`;
+		case "wt-fallback":
+			return `${t} [${e.where}] direct game connection ${e.why === "slow" ? `not ready after ${e.ms} ms` : `failed after ${e.ms} ms${e.error ? ` (${e.error})` : ""}`}; trying through Wisp`;
+		case "tunnel-open":
+			return `${t} [tunnel] opening ${e.url} through ${e.wisp}, ${e.pinned ? `${e.pinned} pinned cert hash(es)` : "checking the certificate chain"}`;
+		case "tunnel-ready":
+			return `${t} [tunnel] connected after ${e.ms} ms (Wisp v${e.wispVersion})`;
+		case "tunnel-fail":
+			return `${t} [tunnel] ${e.stage === "wisp" ? "Wisp" : "QUIC"} failed after ${e.ms} ms: ${e.error}`;
+		case "tunnel-closed":
+			return `${t} [tunnel] closed after ${e.ms} ms${e.rtt !== null ? `, rtt ${e.rtt} ms, ${e.lost} of ${e.sent} packets lost` : ""}${e.dropped ? `, ${e.dropped} dropped at the WebSocket` : ""}`;
+		case "tunnel-preferred":
+			return `${t} [tunnel] later game connections go through Wisp`;
+		case "tunnel-error":
+			return `${t} [tunnel] worker error: ${e.error}`;
 		case "probe":
 			return `${t} direct HTTPS from this browser to ${e.host} (outside Wisp): ${e.ok ? `reachable (${e.ms} ms)` : `blocked (${e.error})`}`;
 		case "engine-failure":
@@ -69,7 +86,7 @@ function diagText() {
 		`engine: ${c.engine || "?"}   place: ${c.placeId || "?"}   server: ${c.gameId || "any"}`,
 		`browser: ${browserName()}`,
 		`isolated: ${crossOriginIsolated ? "yes" : "no"}   WebTransport: ${typeof WebTransport === "undefined" ? "no" : "yes"}   renderer: ${c.renderer || "?"}`,
-		`wisp: ${c.wisp || "?"}   signed in: ${c.signedIn || "?"}`,
+		`wisp: ${c.wisp || "?"}   game connection: ${c.gameConnection || "?"}   signed in: ${c.signedIn || "?"}`,
 		"",
 		...diag.events.map(formatEvent),
 	].join("\n");
@@ -80,11 +97,19 @@ function diagHint() {
 	const join = [...ev].reverse().find((e) => e.kind === "join" && e.hasJoinScript);
 	const fail = [...ev].reverse().find((e) => e.kind === "wt-fail");
 	const probe = ev.find((e) => e.kind === "probe");
-	if (fail && probe && !probe.ok) {
-		return "Your network blocks Roblox outside the Wisp tunnel. Sign-in and joining go through Wisp, but the game connection itself goes straight from your browser to Roblox's servers and can't use the tunnel, so it fails here. It should work on a network that doesn't block Roblox (for example a phone hotspot).";
+	const tunnelFail = [...ev].reverse().find((e) => e.kind === "tunnel-fail");
+	const direct = diag.context.gameConnection === "direct";
+	if (tunnelFail?.stage === "wisp") {
+		return `The game connection couldn't go through the Wisp server: ${tunnelFail.error}. It needs a Wisp server that allows UDP; many public ones turn it off. Run your own (for example wisp-server-python) and set it in webblox's settings.`;
+	}
+	if (tunnelFail) {
+		return `The game connection through the Wisp server failed: ${tunnelFail.error}. Copy the details below and report the problem.`;
+	}
+	if (fail && direct && ((probe && !probe.ok) || fail.ms >= 8000)) {
+		return "Your network seems to block Roblox's game servers. Set Game connection to Automatic or Through Wisp in webblox's settings to send the game through the Wisp server as well.";
 	}
 	if (fail && fail.ms >= 8000) {
-		return "Roblox's game server never answered. Game traffic goes straight from your browser to Roblox over WebTransport (UDP), and networks that block UDP or QUIC stop it. Try another network, such as a phone hotspot, to check.";
+		return "Roblox's game server never answered, directly or through the Wisp server. Try another network, such as a phone hotspot, to check.";
 	}
 	if (fail) {
 		return `The game server refused the connection${join?.fqdnSource === "rebuilt" ? ". Roblox didn't send the server's address, so webblox built it, and it may not match" : ""}. Copy the details below and report the problem.`;
@@ -346,7 +371,37 @@ function wispProblem(err, wispUrl) {
 	);
 }
 
+// The page's id as its service worker knows it. Engine threads get the same id, so this page's
+// tunnel worker only serves this page's engine when several player tabs are open.
+let pageClientId = "";
+function askClientId() {
+	return new Promise((resolve) => {
+		const sw = navigator.serviceWorker;
+		if (!sw?.controller) return resolve("");
+		const timer = setTimeout(() => resolve(""), 2000);
+		const onMessage = (e) => {
+			if (e.data?.type !== "webblox:client-id") return;
+			clearTimeout(timer);
+			sw.removeEventListener("message", onMessage);
+			resolve(e.data.id || "");
+		};
+		sw.addEventListener("message", onMessage);
+		sw.startMessages();
+		sw.controller.postMessage({ type: "webblox:client-id" });
+	});
+}
+
+// Runs game connections that go through Wisp, and tells the engine's WebTransport stand-in which
+// route the "Game connection" setting picks.
+function startTunnelWorker(options) {
+	const worker = new Worker("tunnel.worker.js", { type: "module", name: "webblox-tunnel" });
+	worker.addEventListener("error", (e) => noteDiag({ kind: "tunnel-error", error: e.message || "the tunnel worker failed to start" }));
+	worker.postMessage({ type: "init", options });
+	return worker;
+}
+
 async function main() {
+	installWebTransportShim(window, { client: () => pageClientId });
 	installExitHooks();
 	installDiagnostics();
 	$("canvas").addEventListener("contextmenu", (e) => e.preventDefault());
@@ -377,7 +432,17 @@ async function main() {
 		placeId,
 		gameId,
 		wisp: settings.wispUrl,
+		gameConnection: settings.gameConnection,
 		renderer: flagOverrides.FFlagWasmPreferWebGPU === "False" ? `webgl (setting ${settings.renderer})` : `webgpu (setting ${settings.renderer})`,
+	});
+
+	pageClientId = await askClientId();
+	startTunnelWorker({
+		mode: settings.gameConnection,
+		wispUrl: settings.wispUrl,
+		fallbackMs: 3000,
+		client: pageClientId,
+		origin: location.origin,
 	});
 
 	setStatus("Connecting…");

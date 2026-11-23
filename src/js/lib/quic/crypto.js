@@ -127,71 +127,30 @@ export async function retryTagValid(packet, odcid) {
 
 // ---- key exchange -----------------------------------------------------------------------------
 
-export async function generateKeyShare() {
+export const GROUP = { x25519: 0x001d, secp256r1: 0x0017 };
+
+// Key shares for the ClientHello: X25519 where Web Crypto has it (preferred by most servers), and
+// P-256, which every TLS 1.3 server must support.
+export async function generateKeyShares() {
+	const shares = [];
+	try {
+		const pair = await subtle.generateKey({ name: "X25519" }, false, ["deriveBits"]);
+		shares.push({ group: GROUP.x25519, privateKey: pair.privateKey, publicRaw: new Uint8Array(await subtle.exportKey("raw", pair.publicKey)) });
+	} catch {
+		// this browser's Web Crypto has no X25519
+	}
 	const pair = await subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
-	const publicRaw = new Uint8Array(await subtle.exportKey("raw", pair.publicKey));
-	return { privateKey: pair.privateKey, publicRaw };
+	shares.push({ group: GROUP.secp256r1, privateKey: pair.privateKey, publicRaw: new Uint8Array(await subtle.exportKey("raw", pair.publicKey)) });
+	return shares;
 }
 
-export async function sharedSecret(privateKey, peerRaw) {
-	const peer = await subtle.importKey("raw", peerRaw, { name: "ECDH", namedCurve: "P-256" }, false, []);
-	return new Uint8Array(await subtle.deriveBits({ name: "ECDH", public: peer }, privateKey, 256));
-}
-
-// ---- certificates and signatures ---------------------------------------------------------------
-
-function tlv(buf, pos) {
-	const tag = buf[pos];
-	let len = buf[pos + 1];
-	let start = pos + 2;
-	if (len & 0x80) {
-		const n = len & 0x7f;
-		len = 0;
-		for (let i = 0; i < n; i++) len = len * 256 + buf[start + i];
-		start += n;
-	}
-	if (start + len > buf.length) throw new Error("bad DER");
-	return { tag, start, end: start + len, next: start + len };
-}
-
-// SubjectPublicKeyInfo of an X.509 certificate, as DER.
-export function certificateSpki(cert) {
-	const outer = tlv(cert, 0);
-	const tbs = tlv(cert, outer.start);
-	let at = tbs.start;
-	let field = tlv(cert, at);
-	if (field.tag === 0xa0) at = field.next; // [0] version
-	for (let i = 0; i < 5; i++) at = tlv(cert, at).next; // serial, signature, issuer, validity, subject
-	const spki = tlv(cert, at);
-	return cert.subarray(at, spki.end);
-}
-
-function derEcdsaToRaw(sig) {
-	const seq = tlv(sig, 0);
-	const r = tlv(sig, seq.start);
-	const s = tlv(sig, r.next);
-	const part = (t) => {
-		let v = sig.subarray(t.start, t.end);
-		while (v.length > 32 && v[0] === 0) v = v.subarray(1);
-		const out = new Uint8Array(32);
-		out.set(v, 32 - v.length);
-		return out;
-	};
-	return concat(part(r), part(s));
-}
-
-// Verifies a TLS 1.3 CertificateVerify signature with the certificate's key.
-export async function verifySignature(cert, scheme, signature, content) {
-	const spki = certificateSpki(cert);
-	if (scheme === 0x0403) {
-		const key = await subtle.importKey("spki", spki, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-		return subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, derEcdsaToRaw(signature), content);
-	}
-	if (scheme === 0x0804) {
-		const key = await subtle.importKey("spki", spki, { name: "RSA-PSS", hash: "SHA-256" }, false, ["verify"]);
-		return subtle.verify({ name: "RSA-PSS", saltLength: 32 }, key, signature, content);
-	}
-	throw new Error(`unsupported signature scheme 0x${scheme.toString(16)}`);
+export async function sharedSecret(share, peerRaw) {
+	const x25519 = share.group === GROUP.x25519;
+	const peer = await subtle.importKey("raw", peerRaw, x25519 ? { name: "X25519" } : { name: "ECDH", namedCurve: "P-256" }, false, []);
+	const secret = new Uint8Array(await subtle.deriveBits({ name: x25519 ? "X25519" : "ECDH", public: peer }, share.privateKey, 256));
+	// RFC 8446 section 7.4.2: an all-zero X25519 result means the server sent a bad point.
+	if (x25519 && secret.every((b) => b === 0)) throw new Error("server sent an invalid X25519 key share");
+	return secret;
 }
 
 export function randomBytes(n) {

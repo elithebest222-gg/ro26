@@ -11,12 +11,19 @@ export const DEFAULT_WISP = "wss://wisp.mercurywork.shop/";
 const DEFAULTS = Object.freeze({
 	wispUrl: DEFAULT_WISP,
 	renderer: "auto", // "auto" | "webgpu" | "webgl"
+	// How the game itself (WebTransport to Roblox's game servers) connects:
+	// "auto" direct, falling back to the Wisp server | "direct" | "wisp" always through Wisp.
+	gameConnection: "auto",
 });
+
+export const GAME_CONNECTIONS = ["auto", "direct", "wisp"];
 
 export function loadSettings() {
 	try {
 		const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
-		return { ...DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
+		const out = { ...DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
+		if (!GAME_CONNECTIONS.includes(out.gameConnection)) out.gameConnection = DEFAULTS.gameConnection;
+		return out;
 	} catch {
 		return { ...DEFAULTS };
 	}
