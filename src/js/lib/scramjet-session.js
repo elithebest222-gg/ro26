@@ -62,17 +62,32 @@ export async function readScramjetRobloxCookies() {
 	return { updatedAt: state.value.updatedAt, cookies };
 }
 
-// Mirrors Scramjet's Roblox cookies into the webblox jar whenever Scramjet's jar is newer than
-// the last import. Signing in or out in the browser therefore carries over, while a cookie the
-// player itself refreshed later is kept until the next sign-in.
+// What to do with the browser's session, given its .ROBLOSECURITY and the one last taken from it:
+//   "import"  - someone signed in (again) in the browser: take its Roblox cookies
+//   "signout" - the session that came from the browser is gone there: drop it here too
+//   "none"    - nothing changed; sessions from quick sign-in or a pasted cookie are left alone
+export function planScramjetImport(browserSession, lastImported) {
+	if (browserSession && browserSession !== lastImported) return "import";
+	if (!browserSession && lastImported) return "signout";
+	return "none";
+}
+
 export async function importScramjetSession(jar) {
 	const snap = await readScramjetRobloxCookies();
-	if (!snap) return false;
 	jar.meta ||= {};
-	if (snap.updatedAt <= (jar.meta.scramjetUpdatedAt || 0)) return false;
-	jar.replaceWhere((c) => isRobloxCookieDomain(c.domain), snap.cookies);
-	jar.meta.scramjetUpdatedAt = snap.updatedAt;
-	await jar.saveNow();
+	const browserSession = snap?.cookies.find((c) => c.name === ".ROBLOSECURITY" && c.value)?.value || null;
+	const lastImported = jar.meta.scramjetSession || null;
+	const plan = planScramjetImport(browserSession, snap ? lastImported : null);
+	if (plan === "none") return false;
+	if (plan === "import") {
+		jar.replaceWhere((c) => isRobloxCookieDomain(c.domain), snap.cookies);
+		jar.meta.scramjetSession = browserSession;
+		jar.meta.sessionSource = "browser";
+	} else {
+		jar.removeWhere((c) => c.name === ".ROBLOSECURITY" && c.value === lastImported);
+		jar.meta.scramjetSession = null;
+	}
+	await jar.saveNow?.();
 	return true;
 }
 

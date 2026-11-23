@@ -17,7 +17,7 @@
 			</a>
 			<div class="topbar-actions">
 				<div id="account" class="account">
-					<a id="signin" class="btn primary small" href="browser.html">Sign in</a>
+					<button class="btn primary small" type="button" data-signin>Sign in</button>
 				</div>
 				<button id="open-settings" class="icon-btn" type="button" aria-label="Settings" title="Settings">
 					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -83,6 +83,59 @@
 			</div>
 		</dialog>
 
+		<dialog id="signin-dialog" class="sheet" aria-labelledby="signin-title">
+			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
+			<h2 id="signin-title">Sign in to Roblox</h2>
+			<div class="tabs" role="tablist" aria-label="Sign-in method">
+				<button id="tab-quick" class="tab" role="tab" type="button" aria-selected="true" aria-controls="panel-quick">Quick sign-in</button>
+				<button id="tab-cookie" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-cookie" tabindex="-1">Cookie</button>
+				<button id="tab-browser" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-browser" tabindex="-1">roblox.com</button>
+			</div>
+
+			<section id="panel-quick" class="tab-panel" role="tabpanel" aria-labelledby="tab-quick">
+				<p class="muted">Approve this sign-in from a phone or computer where you're already signed in to Roblox. No password, CAPTCHA or verification here.</p>
+				<div class="quick-code">
+					<img id="quick-qr" class="quick-qr" alt="QR code for this sign-in" hidden />
+					<div>
+						<div id="quick-code" class="code" aria-live="polite">······</div>
+						<p id="quick-expiry" class="small muted"></p>
+					</div>
+				</div>
+				<ol class="steps">
+					<li>On that device, open <a id="quick-link" href="https://www.roblox.com/crossdevicelogin/confirmcode" target="_blank" rel="noopener noreferrer">roblox.com/crossdevicelogin/confirmcode</a>, or in the Roblox app go to <strong>Settings → Quick Log In</strong>.</li>
+					<li>Enter the code above, then confirm the sign-in.</li>
+				</ol>
+				<p id="quick-status" class="status-line" role="status"></p>
+				<button id="quick-new" class="btn small" type="button" hidden>Get a new code</button>
+			</section>
+
+			<section id="panel-cookie" class="tab-panel" role="tabpanel" aria-labelledby="tab-cookie" hidden>
+				<div class="warning">
+					<strong>Your .ROBLOSECURITY cookie is full access to your account.</strong> Only paste it into a copy of webblox you trust. It stays in this browser and is only sent to roblox.com, encrypted end to end.
+				</div>
+				<form id="cookie-form" class="settings-form">
+					<label class="field">
+						<span>.ROBLOSECURITY value</span>
+						<textarea id="cookie-input" rows="4" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="_|WARNING:-DO-NOT-SHARE-THIS…|_…"></textarea>
+					</label>
+					<details class="small">
+						<summary>Where do I find it?</summary>
+						<p>On roblox.com, signed in: open the developer tools (F12), then <strong>Application</strong> (Chrome, Edge) or <strong>Storage</strong> (Firefox) → <strong>Cookies</strong> → https://www.roblox.com, and copy the whole value of <code>.ROBLOSECURITY</code>.</p>
+					</details>
+					<p class="small muted">Signing out of webblox later only forgets the cookie; the browser you copied it from stays signed in. Roblox may end the session if it suddenly shows up from somewhere far away (the Wisp server's location).</p>
+					<div class="row end">
+						<span id="cookie-status" class="small" role="status"></span>
+						<button id="cookie-submit" class="btn primary" type="submit">Sign in</button>
+					</div>
+				</form>
+			</section>
+
+			<section id="panel-browser" class="tab-panel" role="tabpanel" aria-labelledby="tab-browser" hidden>
+				<p class="muted">Sign in on roblox.com itself, inside webblox's browser. Roblox's verification steps can be slow or loop there; if they do, use quick sign-in or a cookie.</p>
+				<a class="btn" href="browser.html">Open roblox.com sign-in</a>
+			</section>
+		</dialog>
+
 		<dialog id="settings" class="sheet" aria-labelledby="settings-title">
 			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
 			<h2 id="settings-title">Settings</h2>
@@ -113,7 +166,7 @@
 				<h3>Account</h3>
 				<p id="settings-account" class="muted">Not signed in.</p>
 				<div class="row">
-					<a class="btn small" href="browser.html">Open sign-in browser</a>
+					<button class="btn small" type="button" data-signin>Sign in</button>
 					<button id="signout" class="btn small danger" type="button" hidden>Sign out</button>
 				</div>
 			</div>

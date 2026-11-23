@@ -26,8 +26,16 @@ one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
 
 ## Using it
 
-1. **Sign in.** Open *Sign in*. It loads roblox.com/login inside a Scramjet 2 browser. Joining a
-   game needs a session; without one, Roblox answers with error 524 "Not authorized".
+1. **Sign in.** Joining a game needs a Roblox session; without one, Roblox answers with error 524
+   "Not authorized". *Sign in* offers three ways in:
+   - **Quick sign-in** (recommended): Roblox's own Quick Log In. webblox shows a code (and QR
+     code); approve it at roblox.com/crossdevicelogin/confirmcode, or in the Roblox app under
+     Settings → Quick Log In, on a device where you're signed in. No password or CAPTCHA.
+   - **Cookie**: paste a `.ROBLOSECURITY` value. webblox checks it with Roblox before saving it,
+     keeps it in this browser, and only ever sends it to roblox.com. Signing out of webblox
+     forgets it but leaves the browser you copied it from signed in.
+   - **roblox.com**: the normal login page inside a Scramjet 2 browser. Its verification steps can
+     be slow or loop behind the proxy, which is why the other two exist.
 2. **Find a game.** Search, or paste a game link, a `roblox://` or `roblox-player:` link, a share
    link, or a place id. The details sheet lists public servers if you want a specific one.
 3. **Play.** The player opens in its own tab. It has to be a top-level page, because the engine

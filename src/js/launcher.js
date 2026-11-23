@@ -1,7 +1,7 @@
 // The launcher: find an experience (search or a pasted link), pick a server, and open the
 // player in its own tab. Roblox's APIs only allow roblox.com via CORS, so calls go over Wisp.
 
-import { CookieJar, isRobloxCookieDomain } from "./lib/cookiejar.js";
+import { CookieJar } from "./lib/cookiejar.js";
 import { PersistentJar } from "./lib/cookie-store.js";
 import { createEpoxyClient } from "./lib/epoxy.js";
 import { parseLaunchInput, playerUrl } from "./lib/links.js";
@@ -17,7 +17,8 @@ import {
 	userHeadshot,
 } from "./lib/roblox-api.js";
 import { RobloxNet } from "./lib/robloxnet.js";
-import { clearScramjetRobloxCookies, importScramjetSession } from "./lib/scramjet-session.js";
+import { importScramjetSession } from "./lib/scramjet-session.js";
+import { cancelQuickLogin, finishQuickLogin, quickLoginStatus, signInWithCookie, signOut, startQuickLogin } from "./lib/session.js";
 import { loadSettings, normalizeWispUrl, saveSettings } from "./lib/settings.js";
 
 const BASE = new URL("./", location.href);
@@ -320,13 +321,14 @@ async function refreshAccount() {
 		notice(connectionHint(err), "error");
 	}
 	$("signout").hidden = !user;
-	$("settings-account").textContent = user ? `Signed in as ${user.displayName} (@${user.name}).` : "Not signed in. Sign in on roblox.com in the sign-in browser to join games.";
+	$("settings-account").textContent = user ? `Signed in as ${user.displayName} (@${user.name}).` : "Not signed in. You need a Roblox account to join games.";
 	if (!user) {
-		const a = document.createElement("a");
-		a.className = "btn primary small";
-		a.href = "browser.html";
-		a.textContent = "Sign in";
-		box.replaceChildren(a);
+		const b = document.createElement("button");
+		b.type = "button";
+		b.className = "btn primary small";
+		b.dataset.signin = "";
+		b.textContent = "Sign in";
+		box.replaceChildren(b);
 		return;
 	}
 	const chip = document.createElement("span");
@@ -346,16 +348,174 @@ async function refreshAccount() {
 $("signout").onclick = async () => {
 	if (!confirm("Sign out of Roblox in webblox?")) return;
 	try {
-		const net = await getNet();
-		await net.api("https://auth.roblox.com/v2/logout", { method: "POST", body: {} }).catch(() => {});
-		net.jar.removeWhere((c) => isRobloxCookieDomain(c.domain));
-		await net.jar.saveNow();
-	} catch {
-		// fall through to clearing the browser's jar
+		const { shared } = await signOut(await getNet());
+		if (shared) notice("Signed out of webblox. The browser you copied the cookie from is still signed in.");
+	} catch (err) {
+		notice(`Couldn't sign out: ${err.message}`, "error");
 	}
-	await clearScramjetRobloxCookies().catch(() => {});
 	refreshAccount();
 };
+
+// ---- sign-in -----------------------------------------------------------------------------
+
+// Where to go after signing in (the player sends people here when they are signed out).
+const returnUrl = (() => {
+	const r = new URLSearchParams(location.search).get("return");
+	if (!r) return null;
+	try {
+		const u = new URL(r);
+		return u.origin === location.origin && u.pathname.startsWith(`${BASE.pathname}player/`) ? u.href : null;
+	} catch {
+		return null;
+	}
+})();
+
+function signedIn(user) {
+	$("signin-dialog").close();
+	notice(returnUrl ? `Signed in as ${user.displayName}. Going back to your game…` : `Signed in as ${user.displayName}.`);
+	refreshAccount();
+	if (returnUrl) setTimeout(() => location.assign(returnUrl), 800);
+}
+
+const TABS = ["quick", "cookie", "browser"];
+function selectTab(name) {
+	for (const t of TABS) {
+		const tab = $(`tab-${t}`);
+		tab.setAttribute("aria-selected", String(t === name));
+		tab.tabIndex = t === name ? 0 : -1;
+		$(`panel-${t}`).hidden = t !== name;
+	}
+	if (name === "quick") quick.start();
+	else quick.stop();
+}
+for (const t of TABS) $(`tab-${t}`).onclick = () => selectTab(t);
+document.querySelector(".tabs").addEventListener("keydown", (e) => {
+	if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+	const i = TABS.findIndex((t) => $(`tab-${t}`).getAttribute("aria-selected") === "true");
+	const next = TABS[(i + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
+	selectTab(next);
+	$(`tab-${next}`).focus();
+});
+
+function openSignIn() {
+	$("cookie-status").textContent = "";
+	$("signin-dialog").showModal();
+	selectTab("quick");
+}
+document.addEventListener("click", (e) => {
+	if (e.target instanceof Element && e.target.closest("[data-signin]")) {
+		$("settings").close();
+		openSignIn();
+	}
+});
+$("signin-dialog").addEventListener("close", () => quick.stop());
+
+// Quick sign-in: show a code, poll until it is approved on another device, then finish.
+const quick = {
+	session: null,
+	timer: null,
+	run: 0,
+	async start() {
+		if (this.session && this.session.expiresAt - Date.now() > 20000) {
+			this.poll(this.run);
+			return;
+		}
+		const run = ++this.run;
+		this.session = null;
+		$("quick-new").hidden = true;
+		$("quick-code").textContent = "······";
+		$("quick-expiry").textContent = "";
+		$("quick-qr").hidden = true;
+		this.status("Getting a code…");
+		try {
+			const net = await getNet();
+			const s = await startQuickLogin(net);
+			if (run !== this.run) return cancelQuickLogin(net, s);
+			this.session = s;
+			$("quick-code").textContent = s.code;
+			$("quick-expiry").textContent = `Expires at ${new Date(s.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+			if (s.qrUrl) {
+				$("quick-qr").hidden = false;
+				setImage($("quick-qr"), s.qrUrl);
+			}
+			this.status("Waiting for you to enter the code…");
+			this.poll(run);
+		} catch (err) {
+			this.status(err.status ? err.message : connectionHint(err), "error");
+			$("quick-new").hidden = false;
+		}
+	},
+	poll(run) {
+		clearTimeout(this.timer);
+		this.timer = setTimeout(async () => {
+			if (run !== this.run || !this.session) return;
+			const s = this.session;
+			if (Date.now() > s.expiresAt) return this.expired();
+			try {
+				const net = await getNet();
+				const st = await quickLoginStatus(net, s);
+				if (run !== this.run) return;
+				if (st.status === "Validated") {
+					this.status("Approved. Signing in…");
+					this.session = null;
+					const user = await finishQuickLogin(net, s);
+					if (run === this.run) signedIn(user);
+					return;
+				}
+				if (st.status === "Cancelled" || st.status === "Expired") return this.expired(st.status === "Cancelled" ? "The sign-in was declined." : undefined);
+				if (st.status === "UserLinked") this.status(`Code accepted${st.accountName ? ` for ${st.accountName}` : ""}. Confirm the sign-in on that device.`);
+			} catch (err) {
+				if (run !== this.run) return;
+				this.status(err.userFacing || err.status ? err.message : connectionHint(err), "error");
+				if (!this.session) {
+					$("quick-new").hidden = false;
+					return;
+				}
+			}
+			this.poll(run);
+		}, 2500);
+	},
+	expired(message = "That code expired.") {
+		this.session = null;
+		$("quick-code").textContent = "······";
+		$("quick-qr").hidden = true;
+		$("quick-expiry").textContent = "";
+		this.status(message);
+		$("quick-new").hidden = false;
+	},
+	stop() {
+		clearTimeout(this.timer);
+		this.run++;
+	},
+	status(text, kind = "info") {
+		$("quick-status").textContent = text;
+		$("quick-status").dataset.kind = kind;
+	},
+};
+$("quick-new").onclick = () => {
+	quick.session = null;
+	quick.start();
+};
+
+$("cookie-form").addEventListener("submit", async (e) => {
+	e.preventDefault();
+	const status = $("cookie-status");
+	const button = $("cookie-submit");
+	status.dataset.kind = "info";
+	status.textContent = "Checking with Roblox…";
+	button.disabled = true;
+	try {
+		const user = await signInWithCookie(await getNet(), $("cookie-input").value);
+		$("cookie-input").value = "";
+		status.textContent = "";
+		signedIn(user);
+	} catch (err) {
+		status.dataset.kind = "error";
+		status.textContent = err.userFacing || err.status ? err.message : connectionHint(err);
+	} finally {
+		button.disabled = false;
+	}
+});
 
 // ---- settings ----------------------------------------------------------------------------
 
@@ -422,8 +582,10 @@ new BroadcastChannel("__scramjet_controller_channel").onmessage = () => {
 
 renderRecent();
 refreshAccount();
-const q = new URLSearchParams(location.search).get("q");
+const startParams = new URLSearchParams(location.search);
+const q = startParams.get("q");
 if (q) {
 	$("search").value = q;
 	$("search-form").requestSubmit();
 }
+if (startParams.has("signin")) openSignIn();

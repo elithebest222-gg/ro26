@@ -256,7 +256,8 @@ async function main() {
 		user = undefined;
 	}
 	if (user === null) {
-		const back = new URL("browser.html", APP_BASE);
+		const back = new URL(APP_BASE);
+		back.searchParams.set("signin", "1");
 		back.searchParams.set("return", location.href);
 		await prompt(
 			"You're not signed in. Roblox needs an account to join games (without one, joining fails with error 524).",

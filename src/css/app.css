@@ -506,6 +506,118 @@ hr {
 	border-top: 1px solid var(--line);
 }
 
+/* ---- sign-in dialog ---- */
+.tabs {
+	display: flex;
+	gap: 4px;
+	margin: 14px 0 16px;
+	padding: 4px;
+	border-radius: 12px;
+	background: var(--surface-2);
+}
+.tab {
+	flex: 1;
+	min-height: 36px;
+	padding: 0 10px;
+	border: 0;
+	border-radius: 9px;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+}
+.tab[aria-selected="true"] {
+	background: var(--surface);
+	color: var(--text);
+	box-shadow: var(--shadow);
+}
+.tab:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+.tab-panel > p:first-child {
+	margin-top: 0;
+}
+.quick-code {
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	margin: 14px 0;
+	padding: 16px;
+	border: 1px solid var(--line);
+	border-radius: 14px;
+	background: var(--bg);
+}
+.quick-qr {
+	flex: none;
+	width: 112px;
+	height: 112px;
+	border-radius: 8px;
+	background: #fff;
+	image-rendering: pixelated;
+}
+.code {
+	font: 700 clamp(28px, 8vw, 38px) / 1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+	letter-spacing: 0.16em;
+}
+.quick-code p {
+	margin: 6px 0 0;
+}
+.steps {
+	margin: 0 0 12px;
+	padding-left: 20px;
+	font-size: 14px;
+}
+.steps li + li {
+	margin-top: 6px;
+}
+.status-line {
+	min-height: 21px;
+	margin: 0 0 10px;
+	font-size: 14px;
+	font-weight: 600;
+}
+.status-line[data-kind="error"],
+#cookie-status[data-kind="error"] {
+	color: var(--danger);
+}
+.warning {
+	padding: 10px 12px;
+	border: 1px solid color-mix(in srgb, #d99a00 45%, transparent);
+	border-radius: 10px;
+	background: color-mix(in srgb, #d99a00 12%, var(--surface));
+	font-size: 14px;
+}
+.field textarea {
+	padding: 10px 12px;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	background: var(--bg);
+	color: var(--text);
+	font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+	resize: vertical;
+	word-break: break-all;
+}
+.field textarea:focus {
+	outline: 2px solid var(--accent);
+	outline-offset: -1px;
+}
+details.small summary {
+	cursor: pointer;
+	color: var(--accent);
+}
+code {
+	font: 0.92em ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (max-width: 480px) {
+	.quick-code {
+		flex-direction: column;
+		text-align: center;
+	}
+}
+
 /* ---- sign-in browser ---- */
 .browser-page {
 	display: flex;
