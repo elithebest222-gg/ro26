@@ -75,11 +75,16 @@ function diagText() {
 function diagHint() {
 	const ev = diag.events;
 	const join = [...ev].reverse().find((e) => e.kind === "join" && e.hasJoinScript);
-	if (join && ev.some((e) => e.kind === "probe" && !e.ok)) {
+	const fail = [...ev].reverse().find((e) => e.kind === "wt-fail");
+	const probe = ev.find((e) => e.kind === "probe");
+	if (fail && probe && !probe.ok) {
 		return "Your network blocks Roblox outside the Wisp tunnel. Sign-in and joining go through Wisp, but the game connection itself goes straight from your browser to Roblox's servers and can't use the tunnel, so it fails here. It should work on a network that doesn't block Roblox (for example a phone hotspot).";
 	}
-	if (ev.some((e) => e.kind === "wt-fail")) {
-		return "Your browser couldn't connect to Roblox's game server. Game traffic goes straight from your browser to Roblox over WebTransport (UDP), not through the Wisp server, and networks that block UDP or QUIC (common at schools and workplaces) stop it. Try another network, such as a phone hotspot, to check.";
+	if (fail && fail.ms >= 8000) {
+		return "Roblox's game server never answered. Game traffic goes straight from your browser to Roblox over WebTransport (UDP), and networks that block UDP or QUIC stop it. Try another network, such as a phone hotspot, to check.";
+	}
+	if (fail) {
+		return `The game server refused the connection${join?.fqdnSource === "rebuilt" ? ". Roblox didn't send the server's address, so webblox built it, and it may not match" : ""}. Copy the details below and report the problem.`;
 	}
 	if (join?.fqdnSource === "missing") return "Roblox didn't send a game server address and webblox couldn't rebuild one.";
 	if (join && !ev.some((e) => e.kind === "wt-open")) return "Roblox assigned a server, but the engine never tried to connect to it.";

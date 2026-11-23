@@ -38,19 +38,29 @@ function ipv4ToInt(ip) {
 	return ((o[0] << 24) >>> 0) + (o[1] << 16) + (o[2] << 8) + o[3];
 }
 
+// The engine reads NetStackTokenValue as 32 hex digits (16 bytes) and writes those 16 bytes back
+// as lowercase hex, so the label always has 32 digits.
 function tokenToHex(token) {
-	if (typeof token === "number" && Number.isFinite(token)) return BigInt(Math.trunc(token)).toString(16);
-	if (typeof token === "bigint") return token.toString(16);
-	if (typeof token !== "string" || !token) return null;
-	if (/^\d+$/.test(token)) return BigInt(token).toString(16);
-	if (/^(0x)?[0-9a-f]+$/i.test(token)) return token.replace(/^0x/i, "").toLowerCase();
-	try {
-		const bin = atob(token.replace(/-/g, "+").replace(/_/g, "/"));
-		return [...bin].map((ch) => ch.charCodeAt(0).toString(16).padStart(2, "0")).join("");
-	} catch {
-		return null;
+	let hex = null;
+	if (typeof token === "number" && Number.isFinite(token)) hex = BigInt(Math.trunc(token)).toString(16);
+	else if (typeof token === "bigint") hex = token.toString(16);
+	else if (typeof token !== "string" || !token) return null;
+	else if (/^[0-9a-f]{32}$/i.test(token)) return token.toLowerCase();
+	else if (/^\d+$/.test(token)) hex = BigInt(token).toString(16);
+	else if (/^(0x)?[0-9a-f]+$/i.test(token)) hex = token.replace(/^0x/i, "").toLowerCase();
+	else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) return token.replace(/-/g, "").toLowerCase();
+	else {
+		try {
+			const bin = atob(token.replace(/-/g, "+").replace(/_/g, "/"));
+			hex = [...bin].map((ch) => ch.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+		} catch {
+			return null;
+		}
 	}
+	return hex.length < 32 ? hex.padStart(32, "0") : hex;
 }
+
+const hexWidth = (n, width) => n.toString(16).padStart(width, "0");
 
 // Depth-first search for the first key (case-insensitive) in a parsed join script.
 function findKey(obj, names, depth = 0) {
@@ -67,7 +77,9 @@ function findKey(obj, names, depth = 0) {
 // The WASM client only connects over WebTransport and needs joinScript.gameFqdn. When the
 // join response leaves it out, it can be rebuilt from the rest of the join script:
 //   <netstack token>-<MachineAddress>-<NetStackPort>.<UdmuxEndpoints[0].Address + 1>.qdmux.roblox.com
-// with every part in hex, the UDMUX address taken with its last octet incremented.
+// Each part is the lowercase hex of its bytes, as the engine's own generator writes it: 16 bytes of
+// token (32 digits), IPv4 addresses as 4 bytes (8 digits, so 10.x.x.x starts with "0a") and the
+// port as 2 bytes (4 digits). The UDMUX address is taken with its last octet incremented.
 export function buildGameFqdn(joinScript) {
 	if (!joinScript || typeof joinScript !== "object") return null;
 	const token = tokenToHex(findKey(joinScript, ["NetStackTokenValue", "NetStackToken", "RbxTransportToken"]));
@@ -76,8 +88,9 @@ export function buildGameFqdn(joinScript) {
 	const endpoints = joinScript.UdmuxEndpoints ?? findKey(joinScript, ["UdmuxEndpoints"]);
 	const udmux = ipv4ToInt(Array.isArray(endpoints) ? endpoints[0]?.Address : null);
 	if (!token || machine === null || !Number.isInteger(port) || port <= 0 || udmux === null) return null;
+	if (port > 0xffff) return null;
 	const edge = ((udmux & 0xffffff00) >>> 0) + (((udmux & 0xff) + 1) & 0xff);
-	return `${token}-${machine.toString(16)}-${port.toString(16)}.${edge.toString(16)}.qdmux.roblox.com`;
+	return `${token}-${hexWidth(machine, 8)}-${hexWidth(port, 4)}.${hexWidth(edge, 8)}.qdmux.roblox.com`;
 }
 
 const json = (status, obj, extra = []) => ({

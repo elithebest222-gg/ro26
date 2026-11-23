@@ -28,14 +28,18 @@ test("rbx-user-agent: Darwin for gamejoin, WinInet elsewhere", () => {
 	assert.equal(rewriteRbxUserAgent("Something/1", "apis.roblox.com"), "Something/1");
 });
 
-test("gameFqdn is rebuilt from the join script", () => {
-	const fqdn = buildGameFqdn({
-		MachineAddress: "10.11.12.13",
-		NetStackPort: 53640,
-		UdmuxEndpoints: [{ Address: "128.116.33.5", Port: 51234 }],
-		NetStackConfig: { NetStackTokenValue: "123456789012" },
-	});
-	assert.equal(fqdn, `${(123456789012n).toString(16)}-a0b0c0d-d188.80742106.qdmux.roblox.com`);
+test("gameFqdn is rebuilt the way the engine writes it (fixed-width lowercase hex)", () => {
+	// Values from a real join that failed while the IP label lacked its leading zero.
+	const token = "A27F0C1D2E3F405162738495A6B7C8D9";
+	assert.equal(
+		buildGameFqdn({ NetStackTokenValue: token, MachineAddress: "10.37.2.74", NetStackPort: 57200, UdmuxEndpoints: [{ Address: "128.116.2.33", Port: 57210 }] }),
+		"a27f0c1d2e3f405162738495a6b7c8d9-0a25024a-df70.80740222.qdmux.roblox.com",
+	);
+	// Small ports keep 4 digits; a numeric token is widened to 16 bytes.
+	assert.equal(
+		buildGameFqdn({ MachineAddress: "10.11.12.13", NetStackPort: 443, UdmuxEndpoints: [{ Address: "128.116.33.5" }], NetStackConfig: { NetStackTokenValue: "123456789012" } }),
+		`${(123456789012n).toString(16).padStart(32, "0")}-0a0b0c0d-01bb.80742106.qdmux.roblox.com`,
+	);
 	assert.equal(buildGameFqdn({ MachineAddress: "10.0.0.1" }), null);
 });
 
@@ -73,7 +77,7 @@ test("join: join-game -> join-game-instance with gameId until a join script arri
 	assert.equal(client.calls[0].url, "https://gamejoin.roblox.com/v1/join-game-instance");
 	assert.deepEqual(JSON.parse(client.calls[0].body), { placeId: 1818, gameId: "abc-123" });
 	assert.equal(client.calls[0].headers["rbx-user-agent"], "Roblox/Darwin");
-	assert.equal(JSON.parse(dec.decode(res.body)).joinScript.gameFqdn, "ff-a000001-1000.80740102.qdmux.roblox.com");
+	assert.equal(JSON.parse(dec.decode(res.body)).joinScript.gameFqdn, `${"ff".padStart(32, "0")}-0a000001-1000.80740102.qdmux.roblox.com`);
 	// After a successful join, later joins (teleports) are left alone.
 	await net.request(req("https://gamejoin.roblox.com/v1/join-game", { method: "POST", headers: ua, body: JSON.stringify({ placeId: 1818 }) }));
 	assert.equal(client.calls[2].url, "https://gamejoin.roblox.com/v1/join-game");

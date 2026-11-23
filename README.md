@@ -87,8 +87,10 @@ player/ (index.html + boot.js)            player/sw.js (scope player/)
   - `gamejoin.roblox.com` is called with `rbx-user-agent: Roblox/Darwin`; other `Roblox/Web …`
     user agents become `Roblox/WinInet`.
   - A missing `joinScript.gameFqdn` is rebuilt as
-    `<netstack token>-<MachineAddress>-<NetStackPort>.<UdmuxEndpoints[0] address, last octet +1>.qdmux.roblox.com`
-    (hex).
+    `<netstack token>-<MachineAddress>-<NetStackPort>.<UdmuxEndpoints[0] address, last octet +1>.qdmux.roblox.com`.
+    Each part is the lowercase hex of its raw bytes, the way the engine's own generator writes it:
+    32 digits for the 16-byte token, 8 for each IPv4 address (so `10.37.2.74` is `0a25024a`), and 4
+    for the port.
   - To join a specific server, `/v1/join-game` becomes `/v1/join-game-instance` with `gameId`.
 - **Session.** Scramjet 2's controller keeps its cookie jar in IndexedDB (`__scramjet_controller`,
   store `state`, key `cookies`). The player copies the roblox.com cookies, including
