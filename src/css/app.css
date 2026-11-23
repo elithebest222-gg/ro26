@@ -476,7 +476,8 @@ h3 {
 	font-size: 14px;
 }
 .field input,
-.field select {
+.field select,
+.code-step select {
 	min-height: 40px;
 	padding: 0 12px;
 	border: 1px solid var(--line);
@@ -487,7 +488,8 @@ h3 {
 	font-size: 14px;
 }
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.code-step select:focus {
 	outline: 2px solid var(--accent);
 	outline-offset: -1px;
 }
@@ -580,8 +582,34 @@ hr {
 	font-weight: 600;
 }
 .status-line[data-kind="error"],
-#cookie-status[data-kind="error"] {
+#cookie-status[data-kind="error"],
+#pw-status[data-kind="error"] {
 	color: var(--danger);
+}
+#pw-status {
+	flex: 1;
+	min-width: 0;
+}
+.code-step {
+	padding: 12px;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--accent, #3b82f6) 6%, var(--surface));
+}
+.code-step p {
+	margin: 0 0 10px;
+	font-size: 14px;
+}
+.code-step .row {
+	margin-top: 10px;
+}
+.code-step .error {
+	color: var(--danger);
+	font-weight: 600;
+}
+#pw-code {
+	font: 600 18px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+	letter-spacing: 0.12em;
 }
 .warning {
 	padding: 10px 12px;

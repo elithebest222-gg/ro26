@@ -18,7 +18,7 @@ import {
 } from "./lib/roblox-api.js";
 import { RobloxNet } from "./lib/robloxnet.js";
 import { importScramjetSession } from "./lib/scramjet-session.js";
-import { cancelQuickLogin, finishQuickLogin, quickLoginStatus, signInWithCookie, signOut, startQuickLogin } from "./lib/session.js";
+import { cancelQuickLogin, finishQuickLogin, quickLoginStatus, signInWithCookie, signInWithPassword, signOut, startQuickLogin } from "./lib/session.js";
 import { loadSettings, normalizeWispUrl, saveSettings } from "./lib/settings.js";
 
 const BASE = new URL("./", location.href);
@@ -372,12 +372,13 @@ const returnUrl = (() => {
 
 function signedIn(user) {
 	$("signin-dialog").close();
-	notice(returnUrl ? `Signed in as ${user.displayName}. Going back to your game…` : `Signed in as ${user.displayName}.`);
+	if (user.banned) notice(`Signed in as ${user.displayName}, but Roblox says this account is banned, so games won't start.`, "error");
+	else notice(returnUrl ? `Signed in as ${user.displayName}. Going back to your game…` : `Signed in as ${user.displayName}.`);
 	refreshAccount();
 	if (returnUrl) setTimeout(() => location.assign(returnUrl), 800);
 }
 
-const TABS = ["quick", "cookie", "browser"];
+const TABS = ["password", "quick", "cookie", "browser"];
 function selectTab(name) {
 	for (const t of TABS) {
 		const tab = $(`tab-${t}`);
@@ -400,7 +401,8 @@ document.querySelector(".tabs").addEventListener("keydown", (e) => {
 function openSignIn() {
 	$("cookie-status").textContent = "";
 	$("signin-dialog").showModal();
-	selectTab("quick");
+	selectTab("password");
+	if (!password.busy) $("pw-user").focus();
 }
 document.addEventListener("click", (e) => {
 	if (e.target instanceof Element && e.target.closest("[data-signin]")) {
@@ -408,7 +410,151 @@ document.addEventListener("click", (e) => {
 		openSignIn();
 	}
 });
-$("signin-dialog").addEventListener("close", () => quick.stop());
+$("signin-dialog").addEventListener("close", () => {
+	quick.stop();
+	password.giveUp();
+});
+
+// Username and password: sent from this browser to Roblox's login API. When Roblox asks for a
+// 2-step verification code, the same form asks for it.
+const METHOD_LABELS = { Authenticator: "Authenticator app", Email: "Email", SMS: "Text message", RecoveryCode: "Recovery code" };
+const password = {
+	busy: false,
+	waiting: null, // resolves the pending code request
+	status(text, kind = "info") {
+		$("pw-status").textContent = text;
+		$("pw-status").dataset.kind = kind;
+	},
+	setBusy(busy) {
+		this.busy = busy;
+		$("pw-user").readOnly = busy;
+		$("pw-pass").readOnly = busy;
+		if (!busy) $("pw-cancel").hidden = true;
+	},
+	// ask.code for signInWithPassword: show the code step and wait for an answer.
+	askCode(req) {
+		const step = $("pw-code-step");
+		const text = $("pw-code-text");
+		text.textContent = "";
+		const intro = {
+			Authenticator: "Enter the code from your authenticator app.",
+			Email: `Roblox sent a code to ${req.maskedEmail || "your email"}.`,
+			SMS: "Roblox sent a code to your phone by text message.",
+			RecoveryCode: "Enter one of the recovery codes you saved when you set up 2-step verification.",
+		}[req.method];
+		text.append(`2-step verification. ${intro}`);
+		if (req.error) {
+			const err = document.createElement("span");
+			err.className = "error";
+			err.textContent = ` ${req.error}`;
+			text.append(err);
+		}
+		$("pw-code-label").textContent = req.method === "RecoveryCode" ? "Recovery code" : "Code";
+		const input = $("pw-code");
+		input.value = "";
+		input.inputMode = req.method === "RecoveryCode" ? "text" : "numeric";
+		input.placeholder = req.codeLength ? "0".repeat(req.codeLength) : "";
+		const select = $("pw-method");
+		select.replaceChildren(...req.methods.map((m) => new Option(METHOD_LABELS[m] || m, m, false, m === req.method)));
+		select.hidden = req.methods.length < 2;
+		const resend = $("pw-resend");
+		resend.hidden = !req.resend;
+		resend.disabled = false;
+		resend.onclick = async () => {
+			resend.disabled = true;
+			try {
+				await req.resend();
+				this.status("Sent a new code.");
+			} catch (err) {
+				this.status(err.status ? `Roblox couldn't send a code (${err.message}).` : connectionHint(err), "error");
+			}
+			setTimeout(() => (resend.disabled = false), 20000);
+		};
+		step.hidden = false;
+		$("pw-cancel").hidden = false;
+		$("pw-submit").textContent = "Verify";
+		$("pw-submit").disabled = false;
+		this.status("");
+		input.focus();
+		return new Promise((resolve) => {
+			this.waiting = resolve;
+			select.onchange = () => {
+				this.waiting = null;
+				this.status("");
+				resolve({ switchTo: select.value });
+			};
+		});
+	},
+	answer(value) {
+		const resolve = this.waiting;
+		this.waiting = null;
+		resolve?.(value);
+	},
+	giveUp() {
+		this.stop?.abort();
+		if (this.waiting) this.answer(null);
+	},
+	reset() {
+		$("pw-code-step").hidden = true;
+		$("pw-code").value = "";
+		$("pw-submit").textContent = "Sign in";
+		this.setBusy(false);
+	},
+};
+$("password-form").addEventListener("submit", async (e) => {
+	e.preventDefault();
+	if (password.waiting) {
+		const code = $("pw-code").value.trim();
+		if (!code) return $("pw-code").focus();
+		$("pw-submit").disabled = true;
+		password.status("Checking the code…");
+		password.answer({ code });
+		return;
+	}
+	if (password.busy) return;
+	$("pw-quick").hidden = true;
+	password.setBusy(true);
+	$("pw-submit").disabled = true;
+	password.status("Signing in…");
+	const stop = new AbortController();
+	password.stop = stop;
+	try {
+		const user = await signInWithPassword(
+			await getNet(),
+			{ identifier: $("pw-user").value, password: $("pw-pass").value },
+			{
+				code: (req) => password.askCode(req),
+				// Long steps (a proof-of-work puzzle) can be stopped with "Start over".
+				progress: (text) => {
+					password.status(text);
+					$("pw-cancel").hidden = false;
+				},
+				signal: stop.signal,
+			},
+		);
+		$("pw-pass").value = "";
+		password.reset();
+		password.status("");
+		signedIn(user);
+	} catch (err) {
+		password.reset();
+		if (err.cancelled) password.status("");
+		else password.status(err.userFacing || err.status ? err.message : connectionHint(err), "error");
+		$("pw-quick").hidden = !err.captcha;
+	} finally {
+		$("pw-submit").disabled = false;
+	}
+});
+$("pw-quick").onclick = () => {
+	selectTab("quick");
+	$("tab-quick").focus();
+};
+$("pw-cancel").onclick = () => {
+	password.stop?.abort();
+	password.giveUp();
+	password.reset();
+	password.status("");
+};
 
 // Quick sign-in: show a code, poll until it is approved on another device, then finish.
 const quick = {

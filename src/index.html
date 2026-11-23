@@ -87,12 +87,44 @@
 			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
 			<h2 id="signin-title">Sign in to Roblox</h2>
 			<div class="tabs" role="tablist" aria-label="Sign-in method">
-				<button id="tab-quick" class="tab" role="tab" type="button" aria-selected="true" aria-controls="panel-quick">Quick sign-in</button>
+				<button id="tab-password" class="tab" role="tab" type="button" aria-selected="true" aria-controls="panel-password">Password</button>
+				<button id="tab-quick" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-quick" tabindex="-1">Quick sign-in</button>
 				<button id="tab-cookie" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-cookie" tabindex="-1">Cookie</button>
 				<button id="tab-browser" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-browser" tabindex="-1">roblox.com</button>
 			</div>
 
-			<section id="panel-quick" class="tab-panel" role="tabpanel" aria-labelledby="tab-quick">
+			<section id="panel-password" class="tab-panel" role="tabpanel" aria-labelledby="tab-password">
+				<form id="password-form" class="settings-form">
+					<label class="field">
+						<span>Username or email</span>
+						<input id="pw-user" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required />
+					</label>
+					<label class="field">
+						<span>Password</span>
+						<input id="pw-pass" name="password" type="password" autocomplete="current-password" required />
+					</label>
+					<div id="pw-code-step" class="code-step" hidden>
+						<p id="pw-code-text"></p>
+						<label class="field">
+							<span id="pw-code-label">Code</span>
+							<input id="pw-code" name="one-time-code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" />
+						</label>
+						<div class="row">
+							<select id="pw-method" aria-label="Verification method" hidden></select>
+							<button id="pw-resend" class="btn small" type="button" hidden>Send a new code</button>
+						</div>
+					</div>
+					<div class="row end">
+						<span id="pw-status" class="small" role="status"></span>
+						<button id="pw-cancel" class="btn small" type="button" hidden>Start over</button>
+						<button id="pw-quick" class="btn small" type="button" hidden>Use quick sign-in</button>
+						<button id="pw-submit" class="btn primary" type="submit">Sign in</button>
+					</div>
+				</form>
+				<p class="small muted">webblox sends your password from this browser to Roblox's login service, encrypted end to end (TLS runs here, so the Wisp server only relays scrambled bytes), and never stores it. 2-step verification codes are asked for here. If Roblox wants a CAPTCHA, which only works on roblox.com, use quick sign-in instead.</p>
+			</section>
+
+			<section id="panel-quick" class="tab-panel" role="tabpanel" aria-labelledby="tab-quick" hidden>
 				<p class="muted">Approve this sign-in from a phone or computer where you're already signed in to Roblox. No password, CAPTCHA or verification here.</p>
 				<div class="quick-code">
 					<img id="quick-qr" class="quick-qr" alt="QR code for this sign-in" hidden />

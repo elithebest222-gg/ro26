@@ -28,8 +28,18 @@ one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
 ## Using it
 
 1. **Sign in.** Joining a game needs a Roblox session; without one, Roblox answers with error 524
-   "Not authorized". *Sign in* offers three ways in:
-   - **Quick sign-in** (recommended): Roblox's own Quick Log In. webblox shows a code (and QR
+   "Not authorized". *Sign in* offers four ways in:
+   - **Password**: your Roblox username (or email) and password. The site checks them with
+     Roblox's own login service, from your browser; TLS runs in the browser, so the Wisp server
+     only relays encrypted bytes, and the password is never stored. If Roblox asks for 2-step
+     verification, enter the code right there: authenticator app, email, text message or a
+     recovery code. Roblox's background "prove you're not a bot" puzzle is solved automatically.
+     Two things can't be done outside roblox.com:
+     - **Roblox's CAPTCHA.** Roblox shows it more often to data-center addresses, like most
+       public Wisp servers. If it asks for one, use Quick sign-in.
+     - **Some 2-step methods.** Security keys, passkeys and approving in the Roblox app aren't
+       supported.
+   - **Quick sign-in**: Roblox's own Quick Log In. webblox shows a code (and QR
      code); approve it at roblox.com/crossdevicelogin/confirmcode, or in the Roblox app under
      Settings → Quick Log In, on a device where you're signed in. No password or CAPTCHA.
    - **Cookie**: paste a `.ROBLOSECURITY` value. webblox checks it with Roblox before saving it,

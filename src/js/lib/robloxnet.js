@@ -376,6 +376,7 @@ export class RobloxNet {
 			const err = new Error(data?.errors?.[0]?.message || `HTTP ${res.status} from ${new URL(href).host}`);
 			err.status = res.status;
 			err.data = data;
+			err.headers = res.headers; // [[name, value]]: challenges come in rblx-challenge-* headers
 			throw err;
 		}
 		return data;
