@@ -4,7 +4,6 @@
   "private": true,
   "description": "Roblox's official WebClientApp (wasm) hosted as a static GitHub Pages site.",
   "type": "module",
-  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=20"
   },

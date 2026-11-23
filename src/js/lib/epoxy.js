@@ -18,6 +18,18 @@ export async function createEpoxyClient(wispUrl, { rootCerts = devRootCerts() } 
 
 export const NULL_BODY_STATUS = new Set([101, 103, 204, 205, 304]);
 
+// epoxy reports connection failures as raw hyper/rustls errors; say what actually happened.
+function describe(err, url) {
+	const msg = String(err?.message || err);
+	const host = new URL(url).host;
+	if (/tls handshake eof|connection (refused|reset)|stream closed|ConnectionRefused|UnexpectedEof/i.test(msg)) {
+		return `the Wisp server could not connect to ${host}`;
+	}
+	if (/websocket|wisp/i.test(msg)) return `the Wisp server is unreachable (${msg.slice(0, 120)})`;
+	if (/certificate|webpki|UnknownIssuer/i.test(msg)) return `${host} presented a certificate that did not verify`;
+	return msg.length > 160 ? `${msg.slice(0, 160)}…` : msg;
+}
+
 function headerPairs(raw) {
 	const out = [];
 	for (const [key, value] of Object.entries(raw || {})) {
@@ -57,13 +69,15 @@ export async function epoxyRequest(client, url, { method = "GET", headers = {}, 
 	} catch (err) {
 		// A dropped Wisp socket surfaces as a failed request; reconnect once for requests that
 		// are safe to repeat.
-		if (method !== "GET" && method !== "HEAD") throw err;
-		try {
-			await client.replace_stream_provider();
-		} catch {
-			throw err;
+		if (method === "GET" || method === "HEAD") {
+			try {
+				await client.replace_stream_provider();
+				return await send();
+			} catch (again) {
+				err = again;
+			}
 		}
-		return send();
+		throw new Error(describe(err, url), { cause: err });
 	}
 }
 

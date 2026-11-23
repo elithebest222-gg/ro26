@@ -109,6 +109,11 @@ async function engineFile(event, cfg, rel, href) {
 	let res;
 	if (cfg.mode === "cdn" && !rel.startsWith("flags/")) {
 		res = await fetch(cfg.cdnBase + rel, { mode: "cors", credentials: "omit" });
+	} else if (rel === "WebClient.wasm" && cfg.wasmParts?.length) {
+		res = new Response(joinParts(cfg.wasmParts.map((p) => new URL(p.name, href).href)), {
+			status: 200,
+			headers: { "Content-Type": "application/wasm" },
+		});
 	} else {
 		res = await fetch(href, { credentials: "same-origin" });
 	}
@@ -120,6 +125,38 @@ async function engineFile(event, cfg, rel, href) {
 		event.waitUntil(cache.put(href, copy).catch(() => {}));
 	}
 	return res;
+}
+
+// Streams the parts of a split file in order, all of them requested up front.
+function joinParts(urls) {
+	const responses = urls.map((u) => fetch(u, { credentials: "same-origin" }));
+	let index = 0;
+	let reader = null;
+	return new ReadableStream({
+		async pull(controller) {
+			for (;;) {
+				if (!reader) {
+					if (index >= responses.length) {
+						controller.close();
+						return;
+					}
+					const res = await responses[index++];
+					if (!res.ok || !res.body) throw new Error(`engine part ${index - 1}: HTTP ${res.status}`);
+					reader = res.body.getReader();
+				}
+				const { done, value } = await reader.read();
+				if (done) {
+					reader = null;
+					continue;
+				}
+				controller.enqueue(value);
+				return;
+			}
+		},
+		cancel(reason) {
+			reader?.cancel(reason);
+		},
+	});
 }
 
 // ---- Roblox traffic -------------------------------------------------------------------------

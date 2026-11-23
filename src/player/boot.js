@@ -251,9 +251,11 @@ async function main() {
 	try {
 		user = await authenticatedUser(net);
 	} catch (err) {
-		throw wispProblem(err, settings.wispUrl);
+		console.warn("[webblox] session check failed:", err);
+		await prompt(wispProblem(err, settings.wispUrl).message, { label: "Open settings", href: APP_BASE.href }, { label: "Try anyway" });
+		user = undefined;
 	}
-	if (!user) {
+	if (user === null) {
 		const back = new URL("browser.html", APP_BASE);
 		back.searchParams.set("return", location.href);
 		await prompt(

@@ -1,0 +1,102 @@
+name: Deploy to GitHub Pages
+
+# Builds the static site and publishes it with GitHub Pages (Settings → Pages → Source:
+# "GitHub Actions"). The Roblox engine is not in the repository: each build downloads the
+# pinned WebClientApp version from Roblox's CDN into the Pages artifact. A daily run pins a
+# newer version when Roblox ships one, commits the new pin and flags, and redeploys.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: "Engine files: copy into the site (local) or stream from Roblox's CDN (cdn)"
+        type: choice
+        options: [local, cdn]
+        default: local
+      update:
+        description: "Pin the newest WebClientApp first"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "41 6 * * *"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.decide.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Pin the newest engine
+        id: pin
+        if: github.event_name == 'schedule' || inputs.update
+        run: node scripts/vendor-engine.mjs pin --if-newer
+
+      - name: Commit the new pin
+        if: steps.pin.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add engine
+          git commit -m "Pin WebClientApp ${{ steps.pin.outputs.version }}"
+          git push
+
+      - name: Decide whether to deploy
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ steps.pin.outputs.changed }}" != "true" ]; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cache engine downloads
+        if: steps.decide.outputs.deploy == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache/engine
+          key: engine-${{ hashFiles('engine/pin.json') }}
+
+      - name: Build
+        if: steps.decide.outputs.deploy == 'true'
+        run: node scripts/build.mjs --engine "${{ inputs.engine || vars.WEBBLOX_ENGINE || 'local' }}"
+
+      - uses: actions/configure-pages@v5
+        if: steps.decide.outputs.deploy == 'true'
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.decide.outputs.deploy == 'true'
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

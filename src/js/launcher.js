@@ -161,11 +161,15 @@ async function runSearch(query, more = false) {
 		else $("results").replaceChildren(...cards);
 		if (!games.length && !more) $("results").replaceChildren(emptyState("No experiences found."));
 		$("more").hidden = !nextPageToken || !games.length;
-		const icons = await gameIcons(net, games.map((g) => g.universeId));
-		games.forEach((g, i) => {
-			g.icon = icons.get(g.universeId) || null;
-			if (g.icon) setImage(cards[i]._img, g.icon);
-		});
+		// Icons are decoration: a failure here must not take the results away.
+		gameIcons(net, games.map((g) => g.universeId))
+			.then((icons) =>
+				games.forEach((g, i) => {
+					g.icon = icons.get(g.universeId) || null;
+					if (g.icon) setImage(cards[i]._img, g.icon);
+				}),
+			)
+			.catch((err) => console.warn("[webblox] game icons unavailable:", err));
 	} catch (err) {
 		if (!more) $("results").replaceChildren(emptyState("Search failed."));
 		notice(connectionHint(err), "error");

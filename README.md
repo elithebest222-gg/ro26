@@ -1,1 +1,122 @@
-# ro26
+# webblox
+
+Roblox in the browser, as a static GitHub Pages site. webblox hosts Roblox's own browser
+client: the `WebClientApp` binary type, an Emscripten build that Roblox ships to its CDN. It adds
+the pieces Roblox's site normally provides: a host page, cross-origin isolation, networking
+over Wisp, a sign-in browser and a game launcher.
+
+Nothing runs on a server you operate. The site is plain static files. Roblox traffic is
+tunnelled through a [Wisp](https://github.com/MercuryWorkshop/wisp-protocol) server, with TLS
+terminated in your browser by [epoxy](https://github.com/MercuryWorkshop/epoxy-tls).
+
+## Deploying to GitHub Pages
+
+1. In the repository settings, open **Pages** and set **Source** to **GitHub Actions**.
+2. Push to `main` (or run the **Deploy to GitHub Pages** workflow by hand).
+
+The workflow runs the tests, downloads the pinned engine from Roblox's CDN into the Pages
+artifact, and deploys. Every day it also checks for a newer `WebClientApp` build. When there is
+one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
+
+| Setting | Where | Default |
+| --- | --- | --- |
+| Engine source: `local` copies the engine (≈230 MB) into the site; `cdn` streams it from Roblox's CDN at play time | repository variable `WEBBLOX_ENGINE`, or the workflow's `engine` input | `local` |
+| Wisp server | in the app: Settings | `wss://wisp.mercurywork.shop/` |
+| Renderer (WebGPU / WebGL 2) | in the app: Settings | automatic |
+
+## Using it
+
+1. **Sign in.** Open *Sign in*. It loads roblox.com/login inside a Scramjet 2 browser. Joining a
+   game needs a session; without one, Roblox answers with error 524 "Not authorized".
+2. **Find a game.** Search, or paste a game link, a `roblox://` or `roblox-player:` link, a share
+   link, or a place id. The details sheet lists public servers if you want a specific one.
+3. **Play.** The player opens in its own tab. It has to be a top-level page, because the engine
+   needs cross-origin isolation.
+
+Pressing Play (or Join on a friend) on roblox.com inside the sign-in browser also works. The
+launch is caught and opened in the player instead of the desktop app.
+
+Requirements: a current Chrome or Edge (other browsers are untested). The browser needs
+WebAssembly threads, WebTransport (game traffic goes straight to `*.qdmux.roblox.com`), and
+WebGPU with BC/ETC2 texture compression or WebGL 2. Only one game tab can run at a time.
+Private servers are not supported yet.
+
+## How it works
+
+```
+launcher (index.html) ─search/details─▶ Wisp ─TLS (epoxy)─▶ *.roblox.com
+      │ opens tab
+      ▼
+player/ (index.html + boot.js)            player/sw.js (scope player/)
+  WasmPlayer.js ─▶ WebClient.js/.wasm ──▶   • adds COOP/COEP to every response → crossOriginIsolated
+  engine pthreads (em-pthread workers)      • engine/<version>/* from the site (or Roblox's CDN), cached per version
+        │ fetch/XHR to *.roblox.com ──────▶ • Roblox requests → MessagePort → net.worker.js
+        │                                                                       │
+        │ WebTransport (game) ─▶ *.qdmux.roblox.com              cookie jar, CSRF, request fixes
+                                                                 └─▶ Wisp ─TLS (epoxy)─▶ *.roblox.com
+```
+
+- **Engine.** `scripts/vendor-engine.mjs pin` reads the current version from
+  `clientsettings.roblox.com/v2/client-version/WebClientApp`. It snapshots the flag sets
+  (`WebClientApp` plus the platform variants `WasmPlayer.js` asks for) into
+  `engine/<version>/flags/`. Pinned flags are served to the engine instead of live ones, so a flag
+  push cannot break an older engine. `fetch` downloads the core files and every file listed in
+  `WebClient.fsindex.txt` (Roblox's prefix-compressed asset index, which replaced
+  `WebClient.metadata.json`) from `setup.rbxcdn.com/webclient/<version>-RobloxWebClient/`.
+  Roblox's files are never committed. `WebClient.wasm` is deployed in 32 MiB parts, which the
+  service worker joins back together.
+- **Host page.** `player/index.html` provides the element ids `WasmPlayer.js` looks up (canvas,
+  text inputs, loading screen). `boot.js` replaces Roblox's `WasmLoader.js`/`stub.js`: it sets
+  `window.__wasmLoaderContext = { engineBase, channel: null, server: "prod" }` and loads
+  `WasmPlayer.js` from the same origin, so no worker stub is needed. Leaving a game returns to the
+  launcher instead of closing the tab.
+- **Networking.** The service worker catches the engine's requests to `*.roblox.com` and
+  `*.rbxcdn.com`, from the page and from its workers, and hands them to `net.worker.js`. That
+  worker sends them over Wisp, so a busy main thread never stalls network I/O. Synthetic responses
+  carry CORP `cross-origin` and CORS headers that list every response header, so the engine can
+  read `x-csrf-token`.
+- **Join fixes** (`src/js/lib/robloxnet.js`):
+  - `gamejoin.roblox.com` is called with `rbx-user-agent: Roblox/Darwin`; other `Roblox/Web …`
+    user agents become `Roblox/WinInet`.
+  - A missing `joinScript.gameFqdn` is rebuilt as
+    `<netstack token>-<MachineAddress>-<NetStackPort>.<UdmuxEndpoints[0] address, last octet +1>.qdmux.roblox.com`
+    (hex).
+  - To join a specific server, `/v1/join-game` becomes `/v1/join-game-instance` with `gameId`.
+- **Session.** Scramjet 2's controller keeps its cookie jar in IndexedDB (`__scramjet_controller`,
+  store `state`, key `cookies`). The player copies the roblox.com cookies, including
+  `.ROBLOSECURITY`, into webblox's own jar whenever that jar is newer. webblox's jar lives in
+  IndexedDB rather than localStorage, because the network worker can't use localStorage.
+- **Launch catching** (`src/js/lib/launch-plugin.js`). A Scramjet frame plugin catches four kinds of
+  launch: `roblox-player:`/`roblox://` set as an iframe `src` (property or `setAttribute`),
+  passed to `window.open`, or used as a link; and `/games/start?placeId=` reached by link,
+  `window.open` or navigation. Follow-user launches carry a user id, which the player resolves
+  through `presence.roblox.com`.
+
+## Development
+
+```bash
+npm ci
+```
+
+```bash
+npm test
+```
+
+```bash
+npm run build
+```
+
+```bash
+npm run serve -- --base /ro26/
+```
+
+`npm run build` downloads the pinned engine into `.cache/` on first use. Pass `-- --engine cdn` to
+skip that, or `-- --engine none` for UI-only work. To pin the newest Roblox build, run
+`npm run engine:pin`. Browsers allow service workers on `http://localhost`, so the served site
+works locally as long as the Wisp server in Settings is reachable.
+
+## Notes
+
+- Roblox's client, assets and services belong to Roblox Corporation. This project is not
+  affiliated with Roblox. Use of Roblox services is subject to Roblox's Terms of Use.
+- The bundled Scramjet and epoxy are licensed AGPL-3.0.

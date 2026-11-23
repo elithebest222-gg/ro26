@@ -85,14 +85,32 @@ async function copyScramjet() {
 	}
 }
 
+// WebClient.wasm is ~100 MB, right at the size where static hosts start refusing single
+// files. Ship it in parts; the player's service worker streams them back together.
+const WASM_PART_SIZE = 32 * 1024 * 1024;
+async function splitFile(file, partSize) {
+	const data = await readFile(file);
+	const parts = [];
+	for (let i = 0, off = 0; off < data.length; i++, off += partSize) {
+		const name = `${path.basename(file)}.${i}`;
+		const chunk = data.subarray(off, off + partSize);
+		await writeFile(path.join(path.dirname(file), name), chunk);
+		parts.push({ name, size: chunk.length });
+	}
+	await rm(file);
+	return parts;
+}
+
 async function installEngine() {
 	if (ENGINE_MODE === "none") return null;
 	const pin = JSON.parse(await readFile(path.join(ROOT, "engine/pin.json"), "utf8"));
 	const v = pin.clientVersionUpload;
 	const dest = path.join(OUT, "player/engine", v);
+	let wasmParts = null;
 	if (ENGINE_MODE === "local") {
 		const r = spawnSync(process.execPath, [path.join(ROOT, "scripts/vendor-engine.mjs"), "fetch", "--dest", dest], { stdio: "inherit" });
 		if (r.status !== 0) throw new Error("Fetching the engine failed; build with --engine cdn to skip it.");
+		wasmParts = await splitFile(path.join(dest, "WebClient.wasm"), WASM_PART_SIZE);
 	}
 	await cp(path.join(ROOT, "engine", v, "flags"), path.join(dest, "flags"), { recursive: true });
 	const config = {
@@ -102,6 +120,7 @@ async function installEngine() {
 		mode: ENGINE_MODE,
 		cdnBase: pin.cdnBase,
 		wasmSize: pin.core?.["WebClient.wasm"]?.size ?? null,
+		wasmParts,
 		flags: pin.flags,
 		builtAt: new Date().toISOString(),
 	};

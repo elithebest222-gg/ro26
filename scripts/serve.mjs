@@ -48,7 +48,7 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 	let file = path.join(DIR, rel);
-	if (!file.startsWith(DIR)) {
+	if (file !== DIR && !file.startsWith(DIR + path.sep)) {
 		res.writeHead(403).end();
 		return;
 	}
