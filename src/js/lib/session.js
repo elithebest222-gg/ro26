@@ -58,7 +58,7 @@ export async function signInWithCookie(net, input) {
 	if (!user) {
 		throw fail(
 			value.startsWith("_|WARNING")
-				? "Roblox didn't accept that cookie. It may have expired, or that session was signed out."
+				? "Roblox didn't accept that cookie. If it's fresh and complete, Roblox is most likely rejecting it because webblox connects from the Wisp server's location, not yours — Roblox ties each session to where it's used. Use a Wisp server on your own connection (one you run on your network) and it should work. The cookie may also simply have expired."
 				: "Roblox didn't accept that cookie. Copy the whole value, including the _|WARNING:…|_ part at the start.",
 		);
 	}

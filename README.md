@@ -53,6 +53,14 @@ one, it pins it, commits the new pin and flags to `engine/`, and redeploys.
      near you (your own, on your network). Otherwise, use the Cookie option.
    - **roblox.com**: the normal login page inside a Scramjet 2 browser. Its verification steps can
      be slow or loop behind the proxy, which is why the others exist.
+
+   **The Wisp server has to be near you.** Roblox ties a session to the place it's used from, and
+   webblox reaches Roblox through the Wisp server — so Roblox sees the Wisp server's location, not
+   yours. Through a far-away public Wisp server, Roblox rejects the cookie, flags the login, or
+   refuses a quick sign-in; the error then says the cookie wasn't accepted even when it's valid.
+   Sign-in works when the Wisp server is on your own connection — one you run on your network (see
+   [On networks that block Roblox](#on-networks-that-block-roblox) for the one-line way to run
+   one). That is the same server that makes games run, so once games work, sign-in does too.
 2. **Find a game.** Search, or paste a game link, a `roblox://` or `roblox-player:` link, a share
    link, or a place id. **Charts** on the home page has Roblox's own lists (Top Trending, Most
    Popular, Top Rated, the genre lists…), signed in or not. The details sheet lists public servers
@@ -94,7 +102,9 @@ server. The game connection is WebTransport (QUIC over UDP) to `*.qdmux.roblox.c
 Through Wisp, the browser runs its own QUIC client and sends the game's UDP packets over a Wisp
 UDP stream. That needs a Wisp server that allows UDP. Many public servers turn it off, so run your
 own (for example `pip install wisp-python`, then `python3 -m wisp.server`) somewhere that can
-reach Roblox, and enter its address in Settings. The Wisp server only relays encrypted packets:
+reach Roblox, and enter its address in Settings — a server on your own machine listens on
+`ws://127.0.0.1:6001/`. Running it on your own connection is also what makes **sign-in** work (see
+*Using it* above), so it's worth setting up once. Keep it running while you use webblox. The Wisp server only relays encrypted packets:
 TLS runs in your browser, and the game server's certificate is checked the way the browser would
 check it. The game is only as fast as the route through the Wisp server, and packets ride a
 WebSocket (TCP), so a lossy link adds more lag than a direct connection would. The diagnostics

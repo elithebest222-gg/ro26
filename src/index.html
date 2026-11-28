@@ -104,6 +104,7 @@
 		<dialog id="signin-dialog" class="sheet" aria-labelledby="signin-title">
 			<form method="dialog" class="sheet-close"><button class="icon-btn" aria-label="Close">✕</button></form>
 			<h2 id="signin-title">Sign in to Roblox</h2>
+			<p class="note">Roblox ties your session to the place it's used from, and webblox connects through the Wisp server — so sign-in works reliably only through a Wisp server on your own connection (one you run on your network), not a far-away public one. The same server that lets games run is the one to use here. <a href="https://github.com/elithebest222-gg/ro26#on-networks-that-block-roblox" target="_blank" rel="noopener noreferrer">How to run one</a>.</p>
 			<div class="tabs" role="tablist" aria-label="Sign-in method">
 				<button id="tab-cookie" class="tab" role="tab" type="button" aria-selected="true" aria-controls="panel-cookie">Cookie</button>
 				<button id="tab-password" class="tab" role="tab" type="button" aria-selected="false" aria-controls="panel-password" tabindex="-1">Password</button>
@@ -161,7 +162,7 @@
 
 			<section id="panel-cookie" class="tab-panel" role="tabpanel" aria-labelledby="tab-cookie">
 				<p id="cookie-note" class="note" hidden>Roblox wanted a CAPTCHA for the password sign-in, and its CAPTCHA only works on roblox.com. Signing in with a cookie avoids it.</p>
-				<p class="muted">The most reliable way in through a Wisp server: paste the session cookie from a browser where you're already signed in. No CAPTCHA, and no location check.</p>
+				<p class="muted">Paste the session cookie from a browser where you're already signed in. No CAPTCHA and nothing to approve — but, like every method, it works only through a Wisp server near you (see the note above).</p>
 				<div class="warning">
 					<strong>Your .ROBLOSECURITY cookie is full access to your account.</strong> Only paste it into a copy of webblox you trust. It stays in this browser and is only sent to roblox.com, encrypted end to end.
 				</div>
